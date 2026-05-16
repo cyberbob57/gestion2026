@@ -604,6 +604,7 @@ function renderSuivi() {
     <button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>
     <button class="btn-pointer-tout" onclick="pointerTout()" title="Pointer toutes les opérations">✓✓</button>
     <button class="btn-add" onclick="showAddSuiviEntry()">＋ Saisir</button>
+    <button class="btn-pdf" onclick="exportSuiviPDF()" title="Exporter le mois en PDF">📄</button>
     <button class="btn-purge" onclick="purgerMois()" title="Effacer toutes les opérations du mois">🗑</button>
   </div>
 
@@ -1019,13 +1020,23 @@ function renderParametres() {
       </div>
     </div>
 
-    <h3>Export / Import</h3>
+    <h3>Sauvegarde & Restauration</h3>
+    ${(() => {
+      const j = joursDepuisBackup();
+      if (j === Infinity) return `<div class="backup-alerte warn">⚠️ Aucune sauvegarde effectuée — pensez à sauvegarder dans iCloud</div>`;
+      if (j >= 7) return `<div class="backup-alerte warn">⚠️ Dernière sauvegarde il y a ${j} jour${j>1?'s':''} — sauvegarde recommandée</div>`;
+      return `<div class="backup-alerte ok">✅ Dernière sauvegarde il y a ${j === 0 ? "moins d'un jour" : j + ' jour' + (j>1?'s':'')}</div>`;
+    })()}
     <div class="params-item">
-      <div class="params-item-left"><div class="name">Exporter les données</div><div class="sub">JSON — à sauvegarder dans iCloud</div></div>
+      <div class="params-item-left"><div class="name">☁️ Sauvegarder dans iCloud</div><div class="sub">Partage natif → Fichiers → iCloud Drive</div></div>
+      <button class="btn-small btn-icloud" onclick="sauvegardeICloud()">Sauvegarder</button>
+    </div>
+    <div class="params-item">
+      <div class="params-item-left"><div class="name">Télécharger (JSON)</div><div class="sub">Sauvegarde complète sur l'appareil</div></div>
       <button class="btn-small" onclick="exportData()">Exporter</button>
     </div>
     <div class="params-item">
-      <div class="params-item-left"><div class="name">Importer des données</div><div class="sub">Restaurer depuis un fichier JSON</div></div>
+      <div class="params-item-left"><div class="name">Restaurer une sauvegarde</div><div class="sub">Importer depuis un fichier JSON</div></div>
       <button class="btn-small" onclick="document.getElementById('import-file').click()">Importer</button>
       <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
     </div>
@@ -1458,19 +1469,134 @@ async function setParam(cle, valeur) {
 // ═══════════════════════════════════════════════════════
 // EXPORT / IMPORT
 // ═══════════════════════════════════════════════════════
-function exportData() {
-  const payload = JSON.stringify({
-    version: '1.0',
+function buildBackupPayload() {
+  return JSON.stringify({
+    version: '2.0',
     exported: new Date().toISOString(),
     mensualisations: state.mensualisations,
     transactions: state.transactions,
     libelles: state.libelles,
+    suivi: state.suivi,
+    soldes: state.soldes,
+    parametres: state.parametres,
   }, null, 2);
+}
+
+function exportData() {
+  const payload = buildBackupPayload();
   const a = document.createElement('a');
   a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(payload);
   a.download = `gestion2026_${new Date().toISOString().slice(0,10)}.json`;
   a.click();
+  localStorage.setItem('last_backup', new Date().toISOString());
   showToast('Export téléchargé', 'success');
+}
+
+// ── Sauvegarde iCloud via le partage natif iOS ──────────
+async function sauvegardeICloud() {
+  const payload = buildBackupPayload();
+  const fname = `gestion2026_${new Date().toISOString().slice(0,10)}.json`;
+  const file = new File([payload], fname, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: 'Sauvegarde Gestion 2026',
+        text: 'Enregistrez ce fichier dans iCloud Drive (Fichiers → iCloud Drive)',
+      });
+      localStorage.setItem('last_backup', new Date().toISOString());
+      showToast('Sauvegarde partagée ✓', 'success');
+    } else {
+      // Fallback : téléchargement classique
+      exportData();
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // partage annulé par l'utilisateur
+    exportData();
+  }
+}
+
+function joursDepuisBackup() {
+  const last = localStorage.getItem('last_backup');
+  if (!last) return Infinity;
+  return Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
+}
+
+// ── Export PDF du suivi mensuel (via impression) ────────
+function exportSuiviPDF() {
+  const entries = getSuiviMois();
+  if (entries.length === 0) { showToast('Aucune opération à exporter ce mois', 'error'); return; }
+  const soldeDepart = getSoldeDepart(state.mois, state.annee);
+  const totalD = entries.reduce((s, e) => s + parseFloat(e.debit  || 0), 0);
+  const totalC = entries.reduce((s, e) => s + parseFloat(e.credit || 0), 0);
+  const soldeFin = soldeDepart + totalC - totalD;
+
+  let run = soldeDepart;
+  const lignes = entries.map(e => {
+    run += parseFloat(e.credit || 0) - parseFloat(e.debit || 0);
+    const lib = [e.libelle_principal, e.libelle_secondaire, e.libelle_libre].filter(Boolean).join(' — ');
+    return `<tr>
+      <td class="c">${getJourSemaine(e.jour)} ${e.jour || ''}</td>
+      <td>${escHtml(lib)}</td>
+      <td class="c">${escHtml(e.type_operation || '')}</td>
+      <td class="c">${escHtml(e.num_cheque || '')}</td>
+      <td class="c">${e.pointe === '✓' ? '✓' : ''}</td>
+      <td class="r credit">${e.credit != null ? fmt(e.credit) : ''}</td>
+      <td class="r debit">${e.debit != null ? fmt(e.debit) : ''}</td>
+      <td class="r">${fmt(run)}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Suivi ${MOIS_FR[state.mois]} ${state.annee}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,Arial,sans-serif}
+    body{padding:24px;color:#0F172A;font-size:12px}
+    h1{font-size:20px;color:#1E40AF;margin-bottom:4px}
+    .sub{color:#64748B;font-size:12px;margin-bottom:16px}
+    .recap{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+    .box{border:1px solid #E2E8F0;border-radius:8px;padding:8px 14px;flex:1;min-width:110px}
+    .box .l{font-size:10px;text-transform:uppercase;color:#64748B;letter-spacing:.5px}
+    .box .v{font-size:15px;font-weight:700;margin-top:2px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th{background:#1E40AF;color:#fff;font-size:10px;text-transform:uppercase;padding:7px 6px;text-align:left}
+    td{padding:6px;border-bottom:1px solid #EEF2F7;font-size:11px}
+    tr:nth-child(even) td{background:#F5F8FF}
+    .c{text-align:center}.r{text-align:right;font-variant-numeric:tabular-nums}
+    .credit{color:#059669}.debit{color:#DC2626}
+    tfoot td{font-weight:700;border-top:2px solid #1E40AF;background:#EEF2F7}
+    .pos{color:#059669}.neg{color:#DC2626}
+    @media print{body{padding:0}@page{margin:14mm}}
+  </style></head><body>
+    <h1>Suivi journalier — ${MOIS_FR[state.mois]} ${state.annee}</h1>
+    <div class="sub">Édité le ${new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})}</div>
+    <div class="recap">
+      <div class="box"><div class="l">Report</div><div class="v ${soldeDepart>=0?'pos':'neg'}">${fmt(soldeDepart)}</div></div>
+      <div class="box"><div class="l">Crédits</div><div class="v pos">${fmt(totalC)}</div></div>
+      <div class="box"><div class="l">Débits</div><div class="v neg">${fmt(totalD)}</div></div>
+      <div class="box"><div class="l">Solde fin</div><div class="v ${soldeFin>=0?'pos':'neg'}">${fmt(soldeFin)}</div></div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Jour</th><th>Libellé</th><th>Type</th><th>Chèque</th><th>P</th>
+        <th style="text-align:right">Crédit</th><th style="text-align:right">Débit</th><th style="text-align:right">Solde</th>
+      </tr></thead>
+      <tbody>${lignes}</tbody>
+      <tfoot><tr>
+        <td colspan="5">Totaux ${MOIS_FR[state.mois]} ${state.annee}</td>
+        <td class="r credit">${fmt(totalC)}</td>
+        <td class="r debit">${fmt(totalD)}</td>
+        <td class="r ${soldeFin>=0?'pos':'neg'}">${fmt(soldeFin)}</td>
+      </tr></tfoot>
+    </table>
+  </body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Autorisez les fenêtres pop-up pour le PDF', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 400);
+  showToast('Choisissez « Enregistrer en PDF »', 'success');
 }
 
 async function importData(e) {
@@ -1480,7 +1606,7 @@ async function importData(e) {
   try {
     const data = JSON.parse(text);
     if (!data.mensualisations) throw new Error('Format invalide');
-    if (!confirm(`Importer ${data.mensualisations.length} mensualisations et ${data.transactions?.length||0} transactions ?`)) return;
+    if (!confirm(`Restaurer cette sauvegarde ?\n\n• ${data.mensualisations.length} mensualisations\n• ${data.transactions?.length||0} transactions\n• ${data.suivi?.length||0} opérations de suivi\n\nLes données existantes seront fusionnées.`)) return;
     setSyncing(true);
     if (data.mensualisations?.length) {
       await sb.from('mensualisations').upsert(data.mensualisations);
@@ -1491,8 +1617,18 @@ async function importData(e) {
     if (data.libelles?.length) {
       await sb.from('libelles').upsert(data.libelles);
     }
+    if (data.suivi?.length) {
+      await sb.from('suivi_mensuel').upsert(data.suivi);
+    }
+    if (data.soldes?.length) {
+      await sb.from('soldes_depart').upsert(data.soldes);
+    }
+    if (data.parametres && typeof data.parametres === 'object') {
+      const params = Object.entries(data.parametres).map(([cle, valeur]) => ({ cle, valeur }));
+      if (params.length) await sb.from('parametres').upsert(params, { onConflict: 'cle' });
+    }
     setSyncing(false);
-    showToast('Import réussi', 'success');
+    showToast('Restauration réussie', 'success');
     await loadData();
   } catch (err) {
     setSyncing(false);

@@ -1063,6 +1063,36 @@ a { color: var(--primary-mid); }
 }
 .btn-pointer-tout:active { background: #D1FAE5; transform: scale(.95); }
 
+/* ── Bouton PDF ────────────────────────────────────────── */
+.btn-pdf {
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1.5px solid #BFDBFE;
+  border-radius: 10px;
+  width: 38px; height: 38px;
+  font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background .2s, transform .1s;
+}
+.btn-pdf:active { background: #DBEAFE; transform: scale(.95); }
+
+/* ── Sauvegarde iCloud ─────────────────────────────────── */
+.btn-icloud {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary-mid));
+  color: #fff !important;
+  border: none;
+}
+.backup-alerte {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.backup-alerte.warn { background: #FFFBEB; border: 1.5px solid #F59E0B; color: #92400E; }
+.backup-alerte.ok   { background: var(--credit-bg); border: 1.5px solid #A7F3D0; color: #065F46; }
+
 /* ── View transition ───────────────────────────────────── */
 @keyframes viewFadeIn {
   from { opacity: 0; transform: translateY(8px); }
