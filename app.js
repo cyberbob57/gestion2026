@@ -29,9 +29,18 @@ function catColor(name) {
 function entryIcon(o) {
   const txt = [o && o.libelle_secondaire, o && o.libelle_libre, o && o.libelle_principal]
     .filter(Boolean).join(' ').toLowerCase();
-  if (txt.includes('yaris'))    return '<span class="veh veh-blanche" title="Toyota Yaris (blanche)">🚗</span>'; // Toyota Yaris blanche
-  if (txt.includes('mercedes')) return '<span class="veh veh-grise" title="Mercedes (grise)">🚗</span>';   // Mercedes grise
+  if (txt.includes('yaris'))    return carSVG('#2563EB', 'Toyota Yaris'); // bleu
+  if (txt.includes('mercedes')) return carSVG('#DC2626', 'Mercedes');     // rouge
   return CAT_ICONS[o && o.libelle_principal] || '💳';
+}
+
+// Petite voiture SVG colorée (couleur = différenciation véhicule)
+function carSVG(color, label) {
+  return `<svg class="veh-svg" viewBox="0 0 24 24" width="20" height="20" aria-label="${label}" role="img">
+    <path fill="${color}" d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11h1a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1v1a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H8v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-1H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h1zm2.1-.5h9.8l-1-3a.5.5 0 0 0-.48-.4H8.58a.5.5 0 0 0-.48.4l-1 3z"/>
+    <circle cx="7" cy="15" r="1.4" fill="#1F2937"/>
+    <circle cx="17" cy="15" r="1.4" fill="#1F2937"/>
+  </svg>`;
 }
 
 // ═══════════════════════════════════════════════════════
