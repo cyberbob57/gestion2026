@@ -1172,3 +1172,37 @@ a { color: var(--primary-mid); }
 .suivi-row.pointed-row.suivi-row-alt { background: transparent !important; }
 .suivi-row.pointed-row td:not(.col-pointe) { opacity: 0.38; }
 .suivi-row.pointed-row .col-pointe { opacity: 1; }
+
+/* ── Suivi: tableau compact sur mobile ───────────────────*/
+@media (max-width: 640px) {
+  .suivi-table { min-width: 560px; font-size: 12px; }
+  .suivi-table thead th { padding: 9px 5px; font-size: 9px; }
+  .suivi-row td { padding: 8px 5px; }
+  .col-jour { width: 38px; }
+  .col-libelle { min-width: 120px; max-width: 150px; white-space: normal; }
+  .lib-secondaire { white-space: normal; }
+  .col-type { width: 64px; font-size: 10px; white-space: normal; }
+  .col-cheque { width: 44px; font-size: 10px; }
+  .col-pointe { width: 34px; }
+  .col-amount { width: 70px; font-size: 11px; }
+  .col-solde { width: 78px; font-size: 12px; }
+  .pointe-badge { width: 24px; height: 24px; font-size: 12px; }
+}
+
+/* Indice de défilement horizontal (mobile uniquement) */
+.suivi-scroll-hint { display: none; }
+@media (max-width: 640px) {
+  .suivi-scroll-hint {
+    display: block;
+    text-align: center;
+    font-size: 11px;
+    color: var(--primary);
+    background: var(--primary-light);
+    border: 1px solid #BFDBFE;
+    border-radius: 8px;
+    margin: 0 16px 8px;
+    padding: 7px 10px;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+}

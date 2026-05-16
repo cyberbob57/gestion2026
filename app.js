@@ -610,7 +610,8 @@ function renderSuivi() {
 
   ${rows.length === 0
     ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>Cliquez sur "Inscrire les mensualisations" pour commencer</small></p></div>`
-    : `<div class="suivi-table-wrap">
+    : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
+    <div class="suivi-table-wrap">
     <table class="suivi-table">
       <thead>
         <tr>
@@ -1921,15 +1922,19 @@ function renderStatsAnnuel() {
 
 function bindSwipe() {
   const el = document.getElementById('main-content');
-  let startX = 0, startY = 0;
+  let startX = 0, startY = 0, ignore = false;
   el.addEventListener('touchstart', e => {
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
+    // Ne pas capturer le swipe s'il démarre dans une zone à défilement horizontal
+    // (tableau du suivi / vue annuelle) → on laisse l'utilisateur faire défiler
+    ignore = !!e.target.closest('.suivi-table-wrap, .ma-scroll, .stats-chart');
   }, { passive: true });
   el.addEventListener('touchend', e => {
+    if (ignore) return;
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
-    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.8) {
       dx < 0 ? nextMonth() : prevMonth();
     }
   }, { passive: true });
