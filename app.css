@@ -951,17 +951,18 @@ a { color: var(--primary-mid); }
   line-height: 1;
   pointer-events: none;
   user-select: none;
-  opacity: .12;
+  opacity: .28;
   z-index: 0;
+  text-align: center;
 }
 .rapp-bank-mark .rbm-l1,
 .rapp-bank-mark .rbm-l2 {
   font-weight: 800;
-  font-size: 30px;
+  font-size: 34px;
   letter-spacing: 1px;
-  color: #FFD200;
   text-transform: lowercase;
 }
+.rapp-bank-mark .rbm-l1 { color: #FFD200; }
 .rapp-bank-mark .rbm-l2 { color: #fff; }
 .rapprochement-card .rapp-title,
 .rapprochement-card .rapp-body { position: relative; z-index: 1; }
