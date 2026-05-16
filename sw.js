@@ -1,22 +1,24 @@
-const CACHE = 'gestion2026-v7';
+const CACHE = 'gestion2026-v8';
 const ASSETS = ['./index.html', './app.css', './app.js', './icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(() => {}));
-  self.skipWaiting();
+  self.skipWaiting(); // active immédiatement la nouvelle version
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
+    await self.clients.claim(); // prend le contrôle des onglets ouverts
+  })());
 });
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (e.request.url.includes('supabase.co')) return; // ne pas cacher les appels API
 
+  // Réseau d'abord (toujours la dernière version), cache en secours hors ligne
   e.respondWith(
     fetch(e.request)
       .then(res => {

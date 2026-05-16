@@ -931,6 +931,8 @@ a { color: var(--primary-mid); }
 
 /* ── Rapprochement bancaire ────────────────────────────── */
 .rapprochement-card {
+  position: relative;
+  overflow: hidden;
   margin: 0 16px 12px;
   background: linear-gradient(135deg, #1E3A8A 0%, #1E40AF 60%, #2563EB 100%);
   border-radius: var(--radius);
@@ -939,6 +941,30 @@ a { color: var(--primary-mid); }
   box-shadow: 0 4px 20px rgba(30,64,175,.35);
   transition: box-shadow .3s;
 }
+.rapp-bank-mark {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  opacity: .12;
+  z-index: 0;
+}
+.rapp-bank-mark .rbm-l1,
+.rapp-bank-mark .rbm-l2 {
+  font-weight: 800;
+  font-size: 30px;
+  letter-spacing: 1px;
+  color: #FFD200;
+  text-transform: lowercase;
+}
+.rapp-bank-mark .rbm-l2 { color: #fff; }
+.rapprochement-card .rapp-title,
+.rapprochement-card .rapp-body { position: relative; z-index: 1; }
 .rapprochement-card.equilibre {
   background: linear-gradient(135deg, #065F46 0%, #059669 60%, #10B981 100%);
   box-shadow: 0 4px 20px rgba(16,185,129,.4);

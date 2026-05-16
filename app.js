@@ -649,6 +649,9 @@ function renderSuivi() {
   </div>
 
   <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}">
+    <div class="rapp-bank-mark" aria-hidden="true">
+      <span class="rbm-l1">La Banque</span><span class="rbm-l2">Postale</span>
+    </div>
     <div class="rapp-title">🏦 Rapprochement bancaire</div>
     <div class="rapp-body">
       <div class="rapp-row">
@@ -1823,7 +1826,29 @@ function escHtml(s) {
 // ═══════════════════════════════════════════════════════
 async function init() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // Recharge automatiquement quand une nouvelle version prend le contrôle
+    let _reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (_reloaded) return;
+      _reloaded = true;
+      window.location.reload();
+    });
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js');
+      // Détecte une nouvelle version en cours d'installation
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener('statechange', () => {
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            showToast('Mise à jour disponible — actualisation…', 'success');
+          }
+        });
+      });
+      // Vérifie les mises à jour au lancement puis toutes les 30 min
+      reg.update();
+      setInterval(() => reg.update(), 30 * 60 * 1000);
+    } catch (e) { /* hors ligne : on garde la version en cache */ }
   }
 
   // Auto-connexion via paramètres URL (ex: ?url=...&key=...)
