@@ -941,29 +941,49 @@ a { color: var(--primary-mid); }
   box-shadow: 0 4px 20px rgba(30,64,175,.35);
   transition: box-shadow .3s;
 }
-.rapp-bank-mark {
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%) rotate(-8deg);
+.rapp-bank-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin: 2px auto 12px;
+  padding: 7px 16px 7px 8px;
+  width: max-content;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 999px;
+}
+.rapp-bank-badge .rbb-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: #FFD200;
+  color: #1E3A8A;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: .5px;
+}
+.rapp-bank-badge .rbb-name {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  line-height: 1;
-  pointer-events: none;
-  user-select: none;
-  opacity: .28;
-  z-index: 0;
-  text-align: center;
+  line-height: 1.05;
 }
-.rapp-bank-mark .rbm-l1,
-.rapp-bank-mark .rbm-l2 {
+.rapp-bank-badge .rbb-la {
+  font-size: 11px;
+  font-weight: 700;
+  color: #FFD200;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+.rapp-bank-badge .rbb-postale {
+  font-size: 14px;
   font-weight: 800;
-  font-size: 34px;
-  letter-spacing: 1px;
-  text-transform: lowercase;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: .6px;
 }
-.rapp-bank-mark .rbm-l1 { color: #FFD200; }
-.rapp-bank-mark .rbm-l2 { color: #fff; }
 .rapprochement-card .rapp-title,
 .rapprochement-card .rapp-body { position: relative; z-index: 1; }
 .rapprochement-card.equilibre {
