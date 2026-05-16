@@ -33,6 +33,7 @@ function entryIcon(o) {
   if (txt.includes('mercedes'))                        return carSVG('#DC2626', 'Mercedes');     // rouge
   if (/\beau\b/.test(txt) || txt.includes('sebvf'))    return '🏠🚰';                            // eau : maison + robinet
   if (/\b(electricit|électricit|uem|edf)\w*/.test(txt)) return '🏠💡';                           // électricité : maison + ampoule
+  if (/\bgaz\b/.test(txt))                              return '🏠🛢️';                           // gaz : maison + bouteille
   return CAT_ICONS[o && o.libelle_principal] || '💳';
 }
 
