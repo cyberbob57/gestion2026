@@ -621,12 +621,29 @@ function renderSuivi() {
   const ecart         = isNaN(soldeBancaire) ? null : +(soldeBancaire - soldePointe).toFixed(2);
   const isEquilibre   = ecart !== null && Math.abs(ecart) < 0.01;
 
-  // Calcul solde courant ligne par ligne
+  // Calcul solde courant ligne par ligne (sur TOUTES les opérations)
   let runBalance = soldeDepart;
-  const rows = entries.map(e => {
+  const allRows = entries.map(e => {
     runBalance += parseFloat(e.credit || 0) - parseFloat(e.debit || 0);
     return { ...e, _solde: runBalance };
   });
+
+  // Recherche + filtres (n'affectent que l'affichage, pas les totaux)
+  const q = (window._suiviSearch || '').trim().toLowerCase();
+  const filt = window._suiviFilter || 'tous';
+  const rows = allRows.filter(e => {
+    if (q) {
+      const hay = [e.libelle_principal, e.libelle_secondaire, e.libelle_libre, e.type_operation, e.num_cheque]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (filt === 'pointe'   && e.pointe !== '✓') return false;
+    if (filt === 'nonpointe'&& e.pointe === '✓') return false;
+    if (filt === 'debit'    && !(parseFloat(e.debit  || 0) > 0)) return false;
+    if (filt === 'credit'   && !(parseFloat(e.credit || 0) > 0)) return false;
+    return true;
+  });
+  const isFiltered = q !== '' || filt !== 'tous';
 
   return `
   <div class="suivi-infobar">
@@ -683,8 +700,25 @@ function renderSuivi() {
     <button class="btn-purge" onclick="purgerMois()" title="Effacer toutes les opérations du mois">🗑</button>
   </div>
 
-  ${rows.length === 0
+  ${entries.length > 0 ? `
+  <div class="suivi-filterbar">
+    <div class="suivi-search">
+      <span>🔍</span>
+      <input type="search" placeholder="Rechercher (libellé, type, chèque…)"
+        value="${escHtml(window._suiviSearch || '')}"
+        oninput="window._suiviSearch=this.value; render()">
+      ${window._suiviSearch ? `<button class="search-clear" onclick="window._suiviSearch=''; render()">✕</button>` : ''}
+    </div>
+    <div class="suivi-chips">
+      ${[['tous','Tous'],['nonpointe','○ Non pointé'],['pointe','✓ Pointé'],['debit','↓ Débit'],['credit','↑ Crédit']]
+        .map(([v,l]) => `<button class="fchip${(window._suiviFilter||'tous')===v?' active':''}" onclick="window._suiviFilter='${v}'; render()">${l}</button>`).join('')}
+    </div>
+  </div>` : ''}
+
+  ${entries.length === 0
     ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>Cliquez sur "Inscrire les mensualisations" pour commencer</small></p></div>`
+    : rows.length === 0
+    ? `<div class="empty-state"><div class="icon">🔍</div><p>Aucun résultat<br><small>Aucune opération ne correspond à votre recherche/filtre</small></p></div>`
     : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
     <div class="suivi-table-wrap">
     <table class="suivi-table">
@@ -930,10 +964,32 @@ function showEditSuiviEntry(id) {
   <div class="modal-title">Modifier l'opération</div>
   <div class="modal-form" id="suivi-form">
     ${suiviForm(e)}
-    <div class="modal-actions">
+    <div class="modal-actions modal-actions-edit">
       <button class="btn-danger" onclick="deleteSuiviEntry('${id}')">Supprimer</button>
+      <button class="btn-dup" onclick="dupliquerSuiviEntry('${id}')">⧉ Dupliquer</button>
       <button class="btn-cancel" onclick="closeModal()">Annuler</button>
       <button class="btn-save" onclick="saveSuiviEntry('${id}')">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+function dupliquerSuiviEntry(id) {
+  const e = state.suivi.find(x => x.id === id);
+  if (!e) return;
+  const copie = { ...e };
+  delete copie.id;
+  delete copie.created_at;
+  delete copie.updated_at;
+  copie.pointe = '';
+  copie.is_mensualisation = false;
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Dupliquer l'opération</div>
+  <div class="modal-form" id="suivi-form">
+    ${suiviForm(copie)}
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveSuiviEntry(null)">Créer la copie</button>
     </div>
   </div>`);
 }
