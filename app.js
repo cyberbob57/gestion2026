@@ -40,6 +40,7 @@ function entryIcon(o) {
   if (/\beau\b/.test(txt) || txt.includes('sebvf'))    return '🏠🚰';                            // eau : maison + robinet
   if (/\b(electricit|électricit|uem|edf)\w*/.test(txt)) return '🏠💡';                           // électricité : maison + ampoule
   if (/\bgaz\b/.test(txt))                              return '🏠🛢️';                           // gaz : maison + bouteille
+  if (/\bprixtel\b/.test(txt))                          return '🏠🥷';                           // Prixtel : maison + homme masqué
   if (/\b(freebox|livebox|box)\b/.test(txt))            return '🏠📡';                           // box internet : maison + antenne
   if (/\b(free\s*mobile|mobile|forfait|sfr|orange|bouygues)\b/.test(txt)) return '🏠📱';          // mobile : maison + téléphone
   if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💼💵';   // revenu : billet de banque
