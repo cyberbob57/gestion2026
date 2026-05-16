@@ -437,7 +437,7 @@ function getSoldeDepart(mois, annee) {
   // No explicit entry → auto-compute from previous month's end balance
   let pm = mois - 1, pa = annee;
   if (pm < 0) { pm = 11; pa--; }
-  if (pa < annee - 3) return 0; // base case to stop recursion
+  if (pa < 2025) return 0; // base case: stop recursion before year 2025
   const prevDepart = getSoldeDepart(pm, pa);
   const prevEntries = state.suivi.filter(e => e.mois === (pm + 1) && e.annee === pa);
   const prevD = prevEntries.reduce((acc, e) => acc + parseFloat(e.debit  || 0), 0);
