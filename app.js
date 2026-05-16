@@ -32,8 +32,9 @@ function entryIcon(o) {
   // Préfixe : icône de la catégorie principale (ex. 🛡️ Assurances) devant la voiture
   // (pas pour les catégories déjà "véhicule" pour éviter une voiture en double)
   const p = (o && o.libelle_principal) || '';
-  const prefix = (CAT_ICONS[p] && !/v[ée]hicul|voiture/i.test(p))
+  let prefix = (CAT_ICONS[p] && !/v[ée]hicul|voiture/i.test(p))
     ? CAT_ICONS[p] + ' ' : '';
+  if (/entretien/.test(txt)) prefix = '🔧 ';                                                     // contrat d'entretien : clé à molette
   if (txt.includes('yaris') || txt.includes('toyota')) return prefix + carSVG('#2563EB', 'Toyota Yaris'); // bleu
   if (txt.includes('mercedes'))                        return prefix + carSVG('#DC2626', 'Mercedes');     // rouge
   if (/\beau\b/.test(txt) || txt.includes('sebvf'))    return '🏠🚰';                            // eau : maison + robinet
