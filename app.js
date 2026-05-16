@@ -29,8 +29,8 @@ function catColor(name) {
 function entryIcon(o) {
   const txt = [o && o.libelle_secondaire, o && o.libelle_libre, o && o.libelle_principal]
     .filter(Boolean).join(' ').toLowerCase();
-  if (txt.includes('yaris'))    return carSVG('#2563EB', 'Toyota Yaris'); // bleu
-  if (txt.includes('mercedes')) return carSVG('#DC2626', 'Mercedes');     // rouge
+  if (txt.includes('yaris') || txt.includes('toyota')) return carSVG('#2563EB', 'Toyota Yaris'); // bleu
+  if (txt.includes('mercedes'))                        return carSVG('#DC2626', 'Mercedes');     // rouge
   return CAT_ICONS[o && o.libelle_principal] || '💳';
 }
 
