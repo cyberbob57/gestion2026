@@ -17,6 +17,14 @@ const CAT_ICONS = {
   'Imprévus':'⚡','Dépôt d\'argent':'💰','Ongles':'💅','Carburant':'⛽',
 };
 
+// Couleur stable déduite du nom de catégorie (pour pastilles)
+function catColor(name) {
+  const s = String(name || '');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return `hsl(${h}, 60%, 50%)`;
+}
+
 // ═══════════════════════════════════════════════════════
 // ÉTAT GLOBAL
 // ═══════════════════════════════════════════════════════
@@ -181,6 +189,12 @@ function renderDashboard() {
   const solde  = totalC - totalD;
   const soldeClass = solde >= 0 ? 'positive' : 'negative';
 
+  // Jauge : part des crédits consommée par les débits
+  const pctConso = totalC > 0 ? Math.min(totalD / totalC * 100, 100) : (totalD > 0 ? 100 : 0);
+  const gaugeColor = pctConso < 70 ? '#10B981' : pctConso < 90 ? '#F59E0B' : '#EF4444';
+  const R = 52, CIRC = 2 * Math.PI * R;
+  const dashOffset = CIRC * (1 - pctConso / 100);
+
   // Prochains prélèvements (15 jours)
   const today = now.getDate();
   const limit = today + 15;
@@ -214,9 +228,32 @@ function renderDashboard() {
     </div>
   </div>
 
+  <div class="card gauge-card">
+    <div class="card-title">Budget consommé — ${MOIS_FR[state.mois]}</div>
+    <div class="gauge-wrap">
+      <svg viewBox="0 0 120 120" class="gauge-svg">
+        <circle cx="60" cy="60" r="${R}" class="gauge-bg"/>
+        <circle cx="60" cy="60" r="${R}" class="gauge-fg"
+          style="stroke:${gaugeColor};stroke-dasharray:${CIRC.toFixed(1)};stroke-dashoffset:${dashOffset.toFixed(1)}"/>
+        <text x="60" y="55" class="gauge-pct" style="fill:${gaugeColor}">${Math.round(pctConso)}%</text>
+        <text x="60" y="74" class="gauge-cap">des crédits</text>
+      </svg>
+      <div class="gauge-legend">
+        <div class="gl-item"><span class="gl-dot" style="background:var(--debit)"></span>Dépensé : <strong>${fmt(totalD)}</strong></div>
+        <div class="gl-item"><span class="gl-dot" style="background:var(--credit)"></span>Reçu : <strong>${fmt(totalC)}</strong></div>
+        <div class="gl-item"><span class="gl-dot" style="background:${solde>=0?'var(--credit)':'var(--debit)'}"></span>Reste : <strong>${fmt(solde)}</strong></div>
+      </div>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title">Évolution 6 mois</div>
     <div class="chart-container"><canvas id="chart-solde"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Solde bancaire réel — ${state.annee}</div>
+    <div class="chart-container"><canvas id="chart-banque"></canvas></div>
   </div>
 
   ${upcoming.length > 0 ? `
@@ -303,6 +340,42 @@ function bindDashboard() {
       }
     }
   });
+
+  // Courbe du solde bancaire réel sur l'année (rapprochements)
+  const cb = document.getElementById('chart-banque');
+  if (cb) {
+    const pts = MOIS_KEYS.map((_, i) => {
+      const key = `solde_banque_${state.annee}_${String(i + 1).padStart(2,'0')}`;
+      const v = parseFloat(state.parametres[key]);
+      return isNaN(v) ? null : parseFloat(v.toFixed(2));
+    });
+    new Chart(cb, {
+      type: 'line',
+      data: {
+        labels: MOIS_COURT,
+        datasets: [{
+          label: 'Solde bancaire réel',
+          data: pts,
+          borderColor: '#1E40AF',
+          backgroundColor: 'rgba(30,64,175,.12)',
+          borderWidth: 2.5,
+          pointBackgroundColor: '#1E40AF',
+          pointRadius: 4,
+          tension: .3,
+          fill: true,
+          spanGaps: true,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false } },
+          y: { grid: { color: '#F3F4F6' }, ticks: { callback: v => v.toLocaleString('fr-FR') + ' €' } }
+        }
+      }
+    });
+  }
 
   // Animate main solde amount
   const soldeEl = document.querySelector('.solde-amount');
@@ -628,7 +701,7 @@ function renderSuivi() {
       <tbody>
         ${rows.map((e, idx) => `
         <tr class="suivi-row${e.is_mensualisation ? ' is-mensu' : ''}${idx % 2 === 1 ? ' suivi-row-alt' : ''}${e.pointe === '✓' ? ' pointed-row' : ''}" onclick="showEditSuiviEntry('${e.id}')">
-          <td class="col-jour">
+          <td class="col-jour" style="box-shadow:inset 4px 0 0 ${catColor(e.libelle_principal)}">
             <div class="jour-nom">${getJourSemaine(e.jour)}</div>
             <div class="jour-num">${e.jour || '—'}</div>
           </td>
