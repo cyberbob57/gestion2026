@@ -649,10 +649,11 @@ function renderSuivi() {
   </div>
 
   <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}">
-    <div class="rapp-bank-mark" aria-hidden="true">
-      <span class="rbm-la">LA BANQUE</span><span class="rbm-postale">POSTALE</span>
-    </div>
     <div class="rapp-title">🏦 Rapprochement bancaire</div>
+    <div class="rapp-bank-badge" aria-label="Compte La Banque Postale">
+      <span class="rbb-mark">LBP</span>
+      <span class="rbb-name"><span class="rbb-la">La Banque</span><span class="rbb-postale">Postale</span></span>
+    </div>
     <div class="rapp-bank-big" onclick="showSoldeBancaire()">
       <div class="rbb-label">Solde bancaire réel</div>
       ${isNaN(soldeBancaire)
