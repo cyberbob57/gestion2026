@@ -1522,6 +1522,36 @@ function joursDepuisBackup() {
   return Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
 }
 
+// ── Rappel automatique quotidien de sauvegarde ──────────
+function maybeAutoBackup() {
+  const j = joursDepuisBackup();
+  if (j < 1) return; // sauvegardé il y a moins d'un jour
+  const today = new Date().toISOString().slice(0, 10);
+  if (localStorage.getItem('backup_snooze') === today) return; // déjà proposé aujourd'hui
+  const dernier = j === Infinity ? 'Aucune sauvegarde effectuée à ce jour.' :
+    `Dernière sauvegarde il y a ${j} jour${j > 1 ? 's' : ''}.`;
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">☁️ Sauvegarde quotidienne</div>
+  <div class="modal-form">
+    <p style="color:var(--text-muted);font-size:14px;line-height:1.6;margin-bottom:6px">
+      ${dernier}<br>Sauvegardez vos données dans iCloud Drive en un geste.
+    </p>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+      💡 Vos données sont déjà synchronisées dans le cloud Supabase — ceci est une archive de sécurité supplémentaire.
+    </p>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="snoozeBackup()">Plus tard</button>
+      <button class="btn-save btn-icloud" onclick="closeModal(); sauvegardeICloud();">Sauvegarder dans iCloud</button>
+    </div>
+  </div>`);
+}
+
+function snoozeBackup() {
+  localStorage.setItem('backup_snooze', new Date().toISOString().slice(0, 10));
+  closeModal();
+}
+
 // ── Export PDF du suivi mensuel (via impression) ────────
 function exportSuiviPDF() {
   const entries = getSuiviMois();
@@ -1733,6 +1763,7 @@ async function init() {
       bindSwipe();
       await loadData();
       subscribeRealtime();
+      setTimeout(maybeAutoBackup, 1500);
       return;
     }
   }
@@ -1744,6 +1775,7 @@ async function init() {
       bindSwipe();
       await loadData();
       subscribeRealtime();
+      setTimeout(maybeAutoBackup, 1500);
       return;
     }
   }
