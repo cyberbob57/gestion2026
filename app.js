@@ -1238,10 +1238,19 @@ function renderParametres() {
       <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
     </div>
 
+    <h3>Nouvel exercice annuel</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="name">Clôturer ${getAnneeExercice()} → créer ${getAnneeExercice() + 1}</div>
+        <div class="sub">Conserve les mensualisations, libellés/sous-libellés, moyens de paiement, chéquiers et pictogrammes. Efface le suivi journalier, les transactions et les soldes de ${getAnneeExercice()}.</div>
+      </div>
+      <button class="btn-small btn-nouvel-exercice" onclick="showNouvelExercice()">🗓️ Démarrer l'exercice ${getAnneeExercice() + 1}</button>
+    </div>
+
     <h3>Informations</h3>
     <div class="params-item">
       <div class="params-item-left">
-        <div class="name">Gestion 2026</div>
+        <div class="name">Gestion ${getAnneeExercice()}</div>
         <div class="sub">v1.3 · PWA · Sync Supabase</div>
       </div>
     </div>
@@ -1321,6 +1330,70 @@ async function deleteMoyenPaiement(idx) {
   showToast('Supprimé');
   navigate('parametres');
 }
+function getAnneeExercice() {
+  const v = parseInt(state.parametres['annee_exercice'], 10);
+  return Number.isFinite(v) ? v : 2026;
+}
+
+function showNouvelExercice() {
+  const a = getAnneeExercice();
+  const n = a + 1;
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">🗓️ Nouvel exercice ${n}</div>
+  <div class="modal-form">
+    <p style="font-size:14px;line-height:1.6;color:var(--text);margin-bottom:8px">
+      <strong>Conservé :</strong> mensualisations, libellés &amp; sous-libellés, moyens de paiement, chéquiers, pictogrammes.
+    </p>
+    <p style="font-size:14px;line-height:1.6;color:var(--debit);margin-bottom:8px">
+      <strong>Effacé définitivement (${a}) :</strong> suivi journalier, transactions, soldes de report et soldes bancaires.
+    </p>
+    <p style="font-size:12px;color:var(--text-muted);background:var(--debit-bg);border:1px solid #FECACA;border-radius:10px;padding:10px;margin-bottom:14px">
+      ⚠️ Action irréversible. Sauvegardez d'abord dans iCloud par sécurité.
+    </p>
+    <div class="modal-actions" style="flex-direction:column;gap:8px">
+      <button class="btn-save btn-icloud" onclick="sauvegardeICloud()">1 · ☁️ Sauvegarder d'abord</button>
+      <button class="btn-danger" onclick="executerNouvelExercice()">2 · Créer l'exercice ${n} (effacer ${a})</button>
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+    </div>
+  </div>`);
+}
+
+async function executerNouvelExercice() {
+  const a = getAnneeExercice();
+  const n = a + 1;
+  if (!confirm(`Confirmer la clôture de l'exercice ${a} ?\n\nToutes les opérations de suivi, transactions et soldes de ${a} seront définitivement supprimés.\n\nLes mensualisations et libellés sont conservés.`)) return;
+  if (!confirm(`Dernière confirmation.\n\nCréer le nouvel exercice ${n} et effacer définitivement les données ${a} ?`)) return;
+  closeModal();
+  setSyncing(true);
+  try {
+    // Suivi journalier de l'année close
+    await sb.from('suivi_mensuel').delete().eq('annee', a);
+    // Transactions de l'année close
+    await sb.from('transactions').delete()
+      .gte('date_transaction', `${a}-01-01`).lte('date_transaction', `${a}-12-31`);
+    // Soldes de report de l'année close
+    await sb.from('soldes_depart').delete().eq('annee', a);
+    // Soldes bancaires réels (paramètres solde_banque_AAAA_MM)
+    const banqueKeys = Object.keys(state.parametres).filter(k => k.startsWith(`solde_banque_${a}_`));
+    for (const k of banqueKeys) {
+      await sb.from('parametres').delete().eq('cle', k);
+    }
+    // Bascule de l'année d'exercice
+    await sb.from('parametres').upsert({ cle: 'annee_exercice', valeur: String(n) }, { onConflict: 'cle' });
+  } catch (e) {
+    setSyncing(false);
+    showToast('Erreur : ' + (e.message || e), 'error');
+    return;
+  }
+  setSyncing(false);
+  state.annee = n;
+  state.mois = 0;
+  await loadData();
+  showToast(`Exercice ${n} créé ✓`, 'success');
+  navigate('dashboard');
+}
+
 async function addPictoRule() {
   const kw = (document.getElementById('new-picto-kw')?.value || '').trim();
   const emoji = (document.getElementById('new-picto-emoji')?.value || '').trim();

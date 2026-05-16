@@ -1287,6 +1287,18 @@ a { color: var(--primary-mid); }
 .picto-add input#new-picto-kw { flex: 1; min-width: 0; }
 .picto-add input#new-picto-emoji { width: 64px; text-align: center; font-size: 18px; }
 
+/* ── Bouton nouvel exercice ────────────────────────────── */
+.btn-nouvel-exercice {
+  width: 100%;
+  background: linear-gradient(135deg, #92400E, #B45309);
+  color: #fff !important;
+  border: none;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.btn-nouvel-exercice:active { transform: scale(.98); }
+
 /* ── Pictogramme véhicule coloré (SVG) ─────────────────── */
 .veh-svg {
   vertical-align: middle;
