@@ -653,18 +653,16 @@ function renderSuivi() {
       <span class="rbm-la">LA BANQUE</span><span class="rbm-postale">POSTALE</span>
     </div>
     <div class="rapp-title">🏦 Rapprochement bancaire</div>
+    <div class="rapp-bank-big" onclick="showSoldeBancaire()">
+      <div class="rbb-label">Solde bancaire réel</div>
+      ${isNaN(soldeBancaire)
+        ? '<div class="rbb-set">Toucher pour saisir →</div>'
+        : `<div class="rbb-amount ${soldeBancaire >= 0 ? 'positive' : 'negative'}">${fmt(soldeBancaire)} <span class="rbb-pencil">✎</span></div>`}
+    </div>
     <div class="rapp-body">
       <div class="rapp-row">
         <span class="rapp-label">✓ Solde pointé <small>(${pointed.length} op.)</small></span>
         <span class="rapp-val ${soldePointe >= 0 ? 'positive' : 'negative'}">${fmt(soldePointe)}</span>
-      </div>
-      <div class="rapp-row rapp-row-bank" onclick="showSoldeBancaire()">
-        <span class="rapp-label">🏦 Solde bancaire réel</span>
-        <span class="rapp-edit">
-          ${isNaN(soldeBancaire)
-            ? '<span class="rapp-set">Toucher pour saisir →</span>'
-            : `<span class="rapp-val-edit">${fmt(soldeBancaire)}</span> <span class="rapp-pencil">✎</span>`}
-        </span>
       </div>
       <div class="rapp-ecart ${isEquilibre ? 'ok' : ecart === null ? 'pending' : 'nok'}">
         ${isEquilibre

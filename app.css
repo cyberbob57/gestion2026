@@ -968,7 +968,42 @@ a { color: var(--primary-mid); }
   letter-spacing: 3px;
 }
 .rapprochement-card .rapp-title,
+.rapprochement-card .rapp-bank-big,
 .rapprochement-card .rapp-body { position: relative; z-index: 1; }
+.rapp-bank-big {
+  text-align: center;
+  margin: 6px 0 14px;
+  cursor: pointer;
+}
+.rapp-bank-big .rbb-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  opacity: .8;
+  margin-bottom: 4px;
+}
+.rapp-bank-big .rbb-amount {
+  font-size: 34px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -.5px;
+  line-height: 1.1;
+}
+.rapp-bank-big .rbb-amount.negative { color: #FCA5A5; }
+.rapp-bank-big .rbb-pencil {
+  font-size: 16px;
+  opacity: .65;
+  font-weight: 400;
+  vertical-align: middle;
+}
+.rapp-bank-big .rbb-set {
+  font-size: 16px;
+  font-weight: 700;
+  font-style: italic;
+  opacity: .85;
+  padding: 6px 0;
+}
 .rapprochement-card.equilibre {
   background: linear-gradient(135deg, #065F46 0%, #059669 60%, #10B981 100%);
   box-shadow: 0 4px 20px rgba(16,185,129,.4);
