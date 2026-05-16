@@ -35,6 +35,7 @@ function entryIcon(o) {
   if (/\b(electricit|électricit|uem|edf)\w*/.test(txt)) return '🏠💡';                           // électricité : maison + ampoule
   if (/\bgaz\b/.test(txt))                              return '🏠🛢️';                           // gaz : maison + bouteille
   if (/\b(free\s*mobile|mobile|forfait|sfr|orange|bouygues)\b/.test(txt)) return '🏠📱';          // mobile : maison + téléphone
+  if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💼💵';   // revenu : billet de banque
   return CAT_ICONS[o && o.libelle_principal] || '💳';
 }
 
