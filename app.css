@@ -904,3 +904,75 @@ a { color: var(--primary-mid); }
 .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
 .legend-dot.debit  { background: var(--debit); }
 .legend-dot.credit { background: var(--credit); }
+
+/* ── Rapprochement bancaire ────────────────────────────── */
+.rapprochement-card {
+  margin: 0 16px 12px;
+  background: linear-gradient(135deg, #1E3A8A 0%, #1E40AF 60%, #2563EB 100%);
+  border-radius: var(--radius);
+  padding: 16px;
+  color: white;
+  box-shadow: 0 4px 20px rgba(30,64,175,.35);
+  transition: box-shadow .3s;
+}
+.rapprochement-card.equilibre {
+  background: linear-gradient(135deg, #065F46 0%, #059669 60%, #10B981 100%);
+  box-shadow: 0 4px 20px rgba(16,185,129,.4);
+}
+.rapp-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  opacity: .85;
+  margin-bottom: 12px;
+}
+.rapp-body { display: flex; flex-direction: column; gap: 8px; }
+.rapp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+.rapp-row-bank {
+  cursor: pointer;
+  background: rgba(255,255,255,.12);
+  border-radius: 10px;
+  padding: 8px 12px;
+  transition: background .2s;
+}
+.rapp-row-bank:hover { background: rgba(255,255,255,.2); }
+.rapp-label { opacity: .9; font-size: 13px; }
+.rapp-label small { opacity: .75; font-size: 11px; }
+.rapp-val { font-weight: 700; font-size: 15px; color: white; }
+.rapp-val.positive, .rapp-val.negative { color: white; }
+.rapp-edit { display: flex; align-items: center; gap: 6px; }
+.rapp-val-edit { font-weight: 700; font-size: 15px; color: white; }
+.rapp-set { font-size: 13px; opacity: .8; font-style: italic; }
+.rapp-pencil { font-size: 14px; opacity: .75; }
+.rapp-ecart {
+  margin-top: 4px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: .2px;
+}
+.rapp-ecart.ok { background: rgba(255,255,255,.25); color: white; }
+.rapp-ecart.nok { background: rgba(239,68,68,.3); color: #FEE2E2; }
+.rapp-ecart.pending { background: rgba(255,255,255,.1); color: rgba(255,255,255,.75); font-weight: 400; font-style: italic; }
+
+/* ── Purge button ─────────────────────────────────────── */
+.btn-purge {
+  background: var(--debit-bg);
+  color: var(--debit);
+  border: 1.5px solid #FECACA;
+  border-radius: 10px;
+  width: 38px; height: 38px;
+  font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background .2s, transform .1s;
+}
+.btn-purge:active { background: #FEE2E2; transform: scale(.95); }

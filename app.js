@@ -433,7 +433,16 @@ function renderJournal() {
 // ═══════════════════════════════════════════════════════
 function getSoldeDepart(mois, annee) {
   const s = state.soldes.find(x => x.mois === (mois + 1) && x.annee === annee);
-  return s ? parseFloat(s.solde) : 0;
+  if (s) return parseFloat(s.solde);
+  // No explicit entry → auto-compute from previous month's end balance
+  let pm = mois - 1, pa = annee;
+  if (pm < 0) { pm = 11; pa--; }
+  if (pa < annee - 3) return 0; // base case to stop recursion
+  const prevDepart = getSoldeDepart(pm, pa);
+  const prevEntries = state.suivi.filter(e => e.mois === (pm + 1) && e.annee === pa);
+  const prevD = prevEntries.reduce((acc, e) => acc + parseFloat(e.debit  || 0), 0);
+  const prevC = prevEntries.reduce((acc, e) => acc + parseFloat(e.credit || 0), 0);
+  return prevDepart + prevC - prevD;
 }
 
 function getSuiviMois() {
@@ -443,11 +452,20 @@ function getSuiviMois() {
 }
 
 function renderSuivi() {
-  const entries    = getSuiviMois();
+  const entries     = getSuiviMois();
   const soldeDepart = getSoldeDepart(state.mois, state.annee);
   const totalD = entries.reduce((s, e) => s + parseFloat(e.debit  || 0), 0);
   const totalC = entries.reduce((s, e) => s + parseFloat(e.credit || 0), 0);
   const soldeFin = soldeDepart + totalC - totalD;
+
+  // Rapprochement bancaire (opérations pointées seulement)
+  const pointed  = entries.filter(e => e.pointe === '✓');
+  const pointedD = pointed.reduce((s, e) => s + parseFloat(e.debit  || 0), 0);
+  const pointedC = pointed.reduce((s, e) => s + parseFloat(e.credit || 0), 0);
+  const soldePointe   = soldeDepart + pointedC - pointedD;
+  const soldeBancaire = getSoldeBancaire(state.mois, state.annee);
+  const ecart         = isNaN(soldeBancaire) ? null : +(soldeBancaire - soldePointe).toFixed(2);
+  const isEquilibre   = ecart !== null && Math.abs(ecart) < 0.01;
 
   // Calcul solde courant ligne par ligne
   let runBalance = soldeDepart;
@@ -471,14 +489,40 @@ function renderSuivi() {
       <div class="sii-value" style="color:var(--credit)">${fmt(totalC)}</div>
     </div>
     <div class="suivi-info-item">
-      <div class="sii-label">Solde</div>
+      <div class="sii-label">Solde fin</div>
       <div class="sii-value ${soldeFin >= 0 ? 'positive' : 'negative'}">${fmt(soldeFin)}</div>
+    </div>
+  </div>
+
+  <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}">
+    <div class="rapp-title">🏦 Rapprochement bancaire</div>
+    <div class="rapp-body">
+      <div class="rapp-row">
+        <span class="rapp-label">✓ Solde pointé <small>(${pointed.length} op.)</small></span>
+        <span class="rapp-val ${soldePointe >= 0 ? 'positive' : 'negative'}">${fmt(soldePointe)}</span>
+      </div>
+      <div class="rapp-row rapp-row-bank" onclick="showSoldeBancaire()">
+        <span class="rapp-label">🏦 Solde bancaire réel</span>
+        <span class="rapp-edit">
+          ${isNaN(soldeBancaire)
+            ? '<span class="rapp-set">Toucher pour saisir →</span>'
+            : `<span class="rapp-val-edit">${fmt(soldeBancaire)}</span> <span class="rapp-pencil">✎</span>`}
+        </span>
+      </div>
+      <div class="rapp-ecart ${isEquilibre ? 'ok' : ecart === null ? 'pending' : 'nok'}">
+        ${isEquilibre
+          ? '✅ Comptes équilibrés — solde confirmé'
+          : ecart === null
+            ? '💡 Saisissez votre solde bancaire pour vérifier'
+            : `⚠️ Écart : ${ecart > 0 ? '+' : ''}${fmt(ecart)}`}
+      </div>
     </div>
   </div>
 
   <div class="suivi-toolbar">
     <button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>
     <button class="btn-add" onclick="showAddSuiviEntry()">＋ Saisir</button>
+    <button class="btn-purge" onclick="purgerMois()" title="Effacer toutes les opérations du mois">🗑</button>
   </div>
 
   ${rows.length === 0
@@ -602,6 +646,48 @@ async function saveSoldeDepart() {
   if (error) { showToast('Erreur : ' + error.message, 'error'); return; }
   showToast('Solde de report enregistré', 'success');
   closeModal();
+  await loadData();
+}
+
+function getSoldeBancaire(mois, annee) {
+  const key = `solde_banque_${annee}_${String(mois + 1).padStart(2,'0')}`;
+  return parseFloat(state.parametres[key] || 'NaN');
+}
+
+function showSoldeBancaire() {
+  const current = getSoldeBancaire(state.mois, state.annee);
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Solde bancaire réel — ${MOIS_FR[state.mois]} ${state.annee}</div>
+  <div class="modal-form" id="solde-banque-form">
+    <div class="form-group">
+      <label>Solde affiché sur votre relevé bancaire (€)</label>
+      <input type="number" step="0.01" id="solde-banque-input" value="${isNaN(current) ? '' : current}" placeholder="0,00">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveSoldeBancaire()">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+async function saveSoldeBancaire() {
+  const val = parseFloat(document.getElementById('solde-banque-input').value);
+  if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
+  const key = `solde_banque_${state.annee}_${String(state.mois + 1).padStart(2,'0')}`;
+  await setParam(key, String(val));
+  closeModal();
+  showToast('Solde bancaire enregistré ✓', 'success');
+  render();
+}
+
+async function purgerMois() {
+  const moisFR = MOIS_FR[state.mois];
+  if (!confirm(`⚠️ Supprimer TOUTES les opérations de ${moisFR} ${state.annee} ?\n\nCette action est irréversible.`)) return;
+  setSyncing(true);
+  await sb.from('suivi_mensuel').delete().eq('mois', state.mois + 1).eq('annee', state.annee);
+  setSyncing(false);
+  showToast(`Données de ${moisFR} effacées`, 'success');
   await loadData();
 }
 
