@@ -29,8 +29,8 @@ function catColor(name) {
 function entryIcon(o) {
   const txt = [o && o.libelle_secondaire, o && o.libelle_libre, o && o.libelle_principal]
     .filter(Boolean).join(' ').toLowerCase();
-  if (txt.includes('yaris'))    return '🚗'; // Toyota Yaris
-  if (txt.includes('mercedes')) return '🚙'; // Mercedes
+  if (txt.includes('yaris'))    return '<span class="veh veh-blanche" title="Toyota Yaris (blanche)">🚗</span>'; // Toyota Yaris blanche
+  if (txt.includes('mercedes')) return '<span class="veh veh-grise" title="Mercedes (grise)">🚗</span>';   // Mercedes grise
   return CAT_ICONS[o && o.libelle_principal] || '💳';
 }
 

@@ -1245,6 +1245,19 @@ a { color: var(--primary-mid); }
 }
 .btn-dup:active { background: #DBEAFE; transform: scale(.97); }
 
+/* ── Pastilles véhicules (couleur de carrosserie) ──────── */
+.veh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+}
+.veh-blanche { background: #FFFFFF; border: 1.5px solid #CBD5E1; }
+.veh-grise   { background: #9CA3AF; border: 1.5px solid #6B7280; }
+
 /* ── Sauvegarde iCloud ─────────────────────────────────── */
 .btn-icloud {
   background: linear-gradient(135deg, var(--primary-dark), var(--primary-mid));
