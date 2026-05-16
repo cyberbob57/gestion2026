@@ -31,6 +31,7 @@ function entryIcon(o) {
     .filter(Boolean).join(' ').toLowerCase();
   if (txt.includes('yaris') || txt.includes('toyota')) return carSVG('#2563EB', 'Toyota Yaris'); // bleu
   if (txt.includes('mercedes'))                        return carSVG('#DC2626', 'Mercedes');     // rouge
+  if (/\beau\b/.test(txt) || txt.includes('sebvf'))    return '🏠🚰';                            // eau : maison + robinet
   return CAT_ICONS[o && o.libelle_principal] || '💳';
 }
 
