@@ -141,7 +141,7 @@ function showSetup() {
 function navigate(view) {
   state.view = view;
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  const titles = { dashboard:'Accueil', mensualisation:'Mensualisation', suivi:'Suivi journalier', parametres:'Paramètres', stats:'Statistiques' };
+  const titles = { dashboard:'Accueil', mensualisation:'Mensualisation', suivi:'Suivi journalier compte courant Robert et Carméla', parametres:'Paramètres', stats:'Statistiques' };
   document.getElementById('page-title').textContent = titles[view];
   render();
 }
@@ -649,11 +649,10 @@ function renderSuivi() {
   </div>
 
   <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}">
-    <div class="rapp-title">🏦 Rapprochement bancaire</div>
-    <div class="rapp-bank-badge" aria-label="Compte La Banque Postale">
-      <span class="rbb-mark">LBP</span>
-      <span class="rbb-name"><span class="rbb-la">La Banque</span><span class="rbb-postale">Postale</span></span>
+    <div class="rapp-bank-mark" aria-hidden="true">
+      <span class="rbm-la">LA BANQUE</span><span class="rbm-postale">POSTALE</span>
     </div>
+    <div class="rapp-title">🏦 Rapprochement bancaire</div>
     <div class="rapp-body">
       <div class="rapp-row">
         <span class="rapp-label">✓ Solde pointé <small>(${pointed.length} op.)</small></span>
@@ -1676,7 +1675,7 @@ function exportSuiviPDF() {
     .pos{color:#059669}.neg{color:#DC2626}
     @media print{body{padding:0}@page{margin:14mm}}
   </style></head><body>
-    <h1>Suivi journalier — ${MOIS_FR[state.mois]} ${state.annee}</h1>
+    <h1>Suivi journalier — Compte courant Robert et Carméla — ${MOIS_FR[state.mois]} ${state.annee}</h1>
     <div class="sub">Édité le ${new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})}</div>
     <div class="recap">
       <div class="box"><div class="l">Report</div><div class="v ${soldeDepart>=0?'pos':'neg'}">${fmt(soldeDepart)}</div></div>
