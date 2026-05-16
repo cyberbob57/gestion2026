@@ -140,6 +140,9 @@ function navigate(view) {
 
 function render() {
   const main = document.getElementById('main-content');
+  main.classList.remove('view-enter');
+  void main.offsetWidth; // force reflow to restart animation
+  main.classList.add('view-enter');
   switch (state.view) {
     case 'dashboard':      main.innerHTML = renderDashboard(); bindDashboard(); break;
     case 'mensualisation': main.innerHTML = renderMensualisation(); break;
@@ -253,6 +256,21 @@ function getMensuAlerte() {
   return mensuCount > 0 && inscritCount === 0;
 }
 
+function animateAmount(el, targetValue, duration = 650) {
+  if (!el) return;
+  const absTarget = Math.abs(targetValue);
+  const isNeg = targetValue < 0;
+  const startTime = performance.now();
+  function step(now) {
+    const progress = Math.min((now - startTime) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const cur = absTarget * eased;
+    el.textContent = (isNeg ? '−' : '') + cur.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 function bindDashboard() {
   const canvas = document.getElementById('chart-solde');
   if (!canvas || typeof Chart === 'undefined') return;
@@ -285,6 +303,14 @@ function bindDashboard() {
       }
     }
   });
+
+  // Animate main solde amount
+  const soldeEl = document.querySelector('.solde-amount');
+  if (soldeEl) {
+    const txt = soldeEl.textContent.trim().replace(/\s/g,'').replace('€','').replace(',','.');
+    const val = parseFloat(txt.replace('−','-').replace(/[^\d.\-]/g,''));
+    if (!isNaN(val)) animateAmount(soldeEl, val);
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -501,6 +527,11 @@ function getSuiviMois() {
     .sort((a, b) => (a.jour || 0) - (b.jour || 0) || (a.ordre || 0) - (b.ordre || 0));
 }
 
+function getJourSemaine(jour) {
+  if (!jour) return '';
+  return ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][new Date(state.annee, state.mois, jour).getDay()];
+}
+
 function renderSuivi() {
   const entries     = getSuiviMois();
   const soldeDepart = getSoldeDepart(state.mois, state.annee);
@@ -594,10 +625,16 @@ function renderSuivi() {
       </thead>
       <tbody>
         ${rows.map((e, idx) => `
-        <tr class="suivi-row${e.is_mensualisation ? ' is-mensu' : ''}${idx % 2 === 1 ? ' suivi-row-alt' : ''}" onclick="showEditSuiviEntry('${e.id}')">
-          <td class="col-jour">${e.jour || '—'}</td>
+        <tr class="suivi-row${e.is_mensualisation ? ' is-mensu' : ''}${idx % 2 === 1 ? ' suivi-row-alt' : ''}${e.pointe === '✓' ? ' pointed-row' : ''}" onclick="showEditSuiviEntry('${e.id}')">
+          <td class="col-jour">
+            <div class="jour-nom">${getJourSemaine(e.jour)}</div>
+            <div class="jour-num">${e.jour || '—'}</div>
+          </td>
           <td class="col-libelle">
-            <div class="lib-principal">${escHtml(e.libelle_principal || '')}</div>
+            <div class="lib-header">
+              <span class="lib-cat-icon">${CAT_ICONS[e.libelle_principal] || '💳'}</span>
+              <div class="lib-principal">${escHtml(e.libelle_principal || '')}</div>
+            </div>
             ${e.libelle_secondaire ? `<div class="lib-secondaire">${escHtml(e.libelle_secondaire)}</div>` : ''}
             ${e.libelle_libre ? `<div class="lib-libre">${escHtml(e.libelle_libre)}</div>` : ''}
           </td>
@@ -1498,11 +1535,12 @@ function closeModal() {
 let _toastTimer;
 function showToast(msg, type = '') {
   const el = document.getElementById('toast');
-  el.textContent = msg;
+  const icons = { success: '✓', error: '✕', '': 'ℹ' };
+  el.innerHTML = `<span class="toast-icon">${icons[type] || icons['']}</span><span>${msg}</span>`;
   el.className = type;
   el.classList.remove('hidden');
   clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => el.classList.add('hidden'), 2800);
+  _toastTimer = setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
 // ═══════════════════════════════════════════════════════

@@ -808,20 +808,7 @@ a { color: var(--primary-mid); }
 }
 .btn-danger:hover { background: #FEE2E2; }
 
-/* ── Toast ─────────────────────────────────────────────── */
-#toast {
-  position: fixed;
-  bottom: calc(var(--nav-h) + 16px);
-  left: 50%; transform: translateX(-50%);
-  background: var(--text);
-  color: white; padding: 12px 22px;
-  border-radius: 22px; font-size: 14px; font-weight: 600;
-  z-index: 200; box-shadow: 0 6px 24px rgba(0,0,0,.3);
-  pointer-events: none;
-  white-space: nowrap;
-}
-#toast.success { background: linear-gradient(135deg, #065F46 0%, #059669 100%); }
-#toast.error   { background: linear-gradient(135deg, #991B1B 0%, #EF4444 100%); }
+/* ── Toast — see redesigned version at bottom ──────────── */
 
 /* ── Desktop / Tablet ──────────────────────────────────── */
 @media (min-width: 640px) {
@@ -1075,3 +1062,83 @@ a { color: var(--primary-mid); }
   transition: background .2s, transform .1s;
 }
 .btn-pointer-tout:active { background: #D1FAE5; transform: scale(.95); }
+
+/* ── View transition ───────────────────────────────────── */
+@keyframes viewFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view-enter { animation: viewFadeIn .22s ease-out both; }
+
+/* ── Toast redesign ────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: calc(var(--nav-h) + 16px);
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 20px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity .22s ease, transform .22s ease;
+  pointer-events: none;
+  box-shadow: 0 4px 24px rgba(0,0,0,.25);
+  max-width: 90vw;
+}
+#toast:not(.hidden) {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+#toast.success { background: linear-gradient(135deg, #065F46, #059669); color: white; }
+#toast.error   { background: linear-gradient(135deg, #7F1D1D, #DC2626); color: white; }
+#toast:not(.success):not(.error) { background: linear-gradient(135deg, #1E293B, #334155); color: white; }
+.toast-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  background: rgba(255,255,255,.2);
+  border-radius: 50%;
+  font-size: 11px; font-weight: 800;
+  flex-shrink: 0;
+}
+
+/* ── Suivi: jour avec nom de semaine ─────────────────────*/
+.col-jour { text-align: center; min-width: 36px; vertical-align: middle; }
+.jour-nom {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: .5px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.jour-num {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+}
+
+/* ── Suivi: icône catégorie ───────────────────────────── */
+.lib-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.lib-cat-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* ── Suivi: lignes pointées atténuées ────────────────────*/
+.suivi-row.pointed-row { background: transparent !important; }
+.suivi-row.pointed-row.suivi-row-alt { background: transparent !important; }
+.suivi-row.pointed-row td:not(.col-pointe) { opacity: 0.38; }
+.suivi-row.pointed-row .col-pointe { opacity: 1; }
