@@ -20,6 +20,43 @@
   --header-h:     62px;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:           #0F172A;
+    --card:         #1E293B;
+    --text:         #F1F5F9;
+    --text-muted:   #94A3B8;
+    --border:       #334155;
+    --primary-light:#1E3A5F;
+    --shadow:       0 1px 3px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.4);
+    --shadow-lg:    0 8px 24px rgba(0,0,0,.5);
+    --debit-bg:     #3B1414;
+    --credit-bg:    #0D2B1E;
+  }
+  body { background: var(--bg); }
+  .setup-card { background: #1E293B; }
+  .form-group input, .form-group select { background: #0F172A; color: var(--text); border-color: var(--border); }
+  .card { background: var(--card); }
+  .mensu-row, .mensu-row-alt { background: var(--card); }
+  .mensu-row-alt { background: #162032; }
+  .suivi-row-alt { background: #162032; }
+  .suivi-table thead th { background: #162032; color: var(--text-muted); }
+  .suivi-total-row { background: #1E293B; }
+  #modal-container { background: var(--card); }
+  .modal-form input, .modal-form select { background: #0F172A; color: var(--text); border-color: var(--border); }
+  .params-section h3 { color: var(--text-muted); }
+  .params-item { border-color: var(--border); }
+  .mensu-alerte { background: #2D1B00; border-color: #92400E; color: #FDE68A; }
+  .totals-bar { background: var(--card); }
+  .total-chip { background: #0F172A; }
+  .search-bar { background: #0F172A; border-color: var(--border); }
+  .search-bar input { color: var(--text); }
+  .upcoming-item { border-color: var(--border); }
+  .ma-table thead th { background: #162032; }
+  .ma-row:hover { background: #1E3A5F; }
+  .nav-badge { background: var(--debit); }
+}
+
 /* ── Reset ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { height: 100%; }
@@ -976,3 +1013,65 @@ a { color: var(--primary-mid); }
   transition: background .2s, transform .1s;
 }
 .btn-purge:active { background: #FEE2E2; transform: scale(.95); }
+
+/* ── Alerte mensualisations ────────────────────────────── */
+.mensu-alerte {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 16px 12px;
+  padding: 14px 16px;
+  background: #FFFBEB;
+  border: 1.5px solid #F59E0B;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background .2s;
+}
+.mensu-alerte:active { background: #FEF3C7; }
+.alerte-icon { font-size: 22px; flex-shrink: 0; }
+.alerte-text { flex: 1; }
+.alerte-text strong { display: block; font-size: 14px; color: #92400E; }
+.alerte-text span { font-size: 12px; color: #B45309; }
+.alerte-arrow { font-size: 20px; color: #F59E0B; font-weight: 700; }
+
+/* ── Nav badge ─────────────────────────────────────────── */
+.nav-item { position: relative; }
+.nav-badge {
+  position: absolute;
+  top: 4px; right: 50%;
+  transform: translateX(14px);
+  background: #EF4444;
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+
+/* ── Budget vs Réel ────────────────────────────────────── */
+.mensu-reel {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 2px;
+  text-align: right;
+}
+.mensu-reel.ok    { color: var(--credit); }
+.mensu-reel.nok   { color: var(--debit); }
+.mensu-reel.pending { color: var(--text-muted); font-style: italic; font-weight: 400; }
+
+/* ── Pointer en masse ──────────────────────────────────── */
+.btn-pointer-tout {
+  background: var(--credit-bg);
+  color: var(--credit);
+  border: 1.5px solid #A7F3D0;
+  border-radius: 10px;
+  padding: 0 12px;
+  height: 38px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background .2s, transform .1s;
+}
+.btn-pointer-tout:active { background: #D1FAE5; transform: scale(.95); }

@@ -149,6 +149,19 @@ function render() {
   }
   updateMonthLabel();
   updateSyncDot();
+
+  // Badge alerte mensu sur le bouton Suivi
+  const suiviBtn = document.querySelector('[data-view="suivi"]');
+  if (suiviBtn) {
+    const existing = suiviBtn.querySelector('.nav-badge');
+    if (existing) existing.remove();
+    if (getMensuAlerte()) {
+      const badge = document.createElement('span');
+      badge.className = 'nav-badge';
+      badge.textContent = '!';
+      suiviBtn.appendChild(badge);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -174,6 +187,15 @@ function renderDashboard() {
     .slice(0, 6);
 
   return `
+  ${getMensuAlerte() ? `
+  <div class="mensu-alerte" onclick="navigate('suivi')">
+    <span class="alerte-icon">⚠️</span>
+    <div class="alerte-text">
+      <strong>Mensualisations non inscrites</strong>
+      <span>Appuyez pour ouvrir le suivi et les inscrire</span>
+    </div>
+    <span class="alerte-arrow">›</span>
+  </div>` : ''}
   <div class="solde-card">
     <div class="solde-label">Solde net — ${MOIS_FR[state.mois]} ${state.annee}</div>
     <div class="solde-amount ${soldeClass}">${fmt(solde)}</div>
@@ -209,6 +231,26 @@ function renderDashboard() {
       </li>`).join('')}
     </ul>
   </div>` : ''}`;
+}
+
+function getSuiviActuelMensu(m) {
+  // Sum actual suivi entries matching this mensualisation's libellé for current month
+  const entries = state.suivi.filter(e =>
+    e.mois === state.mois + 1 &&
+    e.annee === state.annee &&
+    e.libelle_principal === m.libelle_principal &&
+    (!m.libelle_secondaire || e.libelle_secondaire === m.libelle_secondaire)
+  );
+  const d = entries.reduce((s, e) => s + parseFloat(e.debit  || 0), 0);
+  const c = entries.reduce((s, e) => s + parseFloat(e.credit || 0), 0);
+  return m.operation === 'Débit' ? d : c;
+}
+
+function getMensuAlerte() {
+  const mk = MOIS_KEYS[state.mois];
+  const mensuCount = state.mensualisations.filter(m => m[mk] != null && m[mk] !== '').length;
+  const inscritCount = state.suivi.filter(s => s.mois === state.mois + 1 && s.annee === state.annee && s.is_mensualisation).length;
+  return mensuCount > 0 && inscritCount === 0;
 }
 
 function bindDashboard() {
@@ -285,7 +327,12 @@ function renderMensualisation() {
   </div>
   <div class="mensu-list">
     ${rows.length === 0 ? '<div class="empty-state"><div class="icon">📋</div><p>Aucune mensualisation ce mois</p></div>' :
-      rows.map((m, idx) => `
+      rows.map((m, idx) => {
+        const prevu = parseFloat(m[mk] || 0);
+        const actuel = getSuiviActuelMensu(m);
+        const ecartBR = actuel - prevu;
+        const isOk = actuel >= prevu * 0.99;
+        return `
         <div class="mensu-row${idx % 2 === 1 ? ' mensu-row-alt' : ''}" onclick="showEditMensu('${m.id}')">
           <div class="mensu-day">${m.jour}</div>
           <div class="mensu-info">
@@ -296,9 +343,12 @@ function renderMensualisation() {
             <div class="mensu-amount ${m.operation.toLowerCase()}">
               ${m.operation==='Débit'?'−':'+'}${fmt(m[mk])}
             </div>
-            <div class="mensu-type">${escHtml(m.type_operation || '')}</div>
+            ${actuel > 0 ? `<div class="mensu-reel ${isOk ? 'ok' : 'nok'}">
+              réel: ${fmt(actuel)}
+            </div>` : `<div class="mensu-reel pending">non inscrit</div>`}
           </div>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
   </div>`;
 }
 
@@ -521,6 +571,7 @@ function renderSuivi() {
 
   <div class="suivi-toolbar">
     <button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>
+    <button class="btn-pointer-tout" onclick="pointerTout()" title="Pointer toutes les opérations">✓✓</button>
     <button class="btn-add" onclick="showAddSuiviEntry()">＋ Saisir</button>
     <button class="btn-purge" onclick="purgerMois()" title="Effacer toutes les opérations du mois">🗑</button>
   </div>
@@ -578,6 +629,18 @@ function bindSuivi() { /* events délégués via onclick inline */ }
 async function togglePointe(id, current) {
   const newVal = current === '✓' ? '' : '✓';
   await sb.from('suivi_mensuel').update({ pointe: newVal }).eq('id', id);
+  await loadData();
+}
+
+async function pointerTout() {
+  const nonPointes = getSuiviMois().filter(e => e.pointe !== '✓');
+  if (nonPointes.length === 0) { showToast('Toutes les opérations sont déjà pointées ✓', 'success'); return; }
+  setSyncing(true);
+  await Promise.all(nonPointes.map(e =>
+    sb.from('suivi_mensuel').update({ pointe: '✓' }).eq('id', e.id)
+  ));
+  setSyncing(false);
+  showToast(`${nonPointes.length} opération(s) pointée(s) ✓`, 'success');
   await loadData();
 }
 
@@ -1493,6 +1556,7 @@ async function init() {
     const ok = await initSupabase(pUrl, pKey);
     if (ok) {
       showApp();
+      bindSwipe();
       await loadData();
       subscribeRealtime();
       return;
@@ -1503,6 +1567,7 @@ async function init() {
     const ok = await initSupabase(state.sbUrl, state.sbKey);
     if (ok) {
       showApp();
+      bindSwipe();
       await loadData();
       subscribeRealtime();
       return;
@@ -1646,6 +1711,22 @@ function renderStatsAnnuel() {
     </div>
   </div>`;
   return moisChart + statsContent(totalDebit, totalCredit, sortD, sortC, `Année ${state.annee}`);
+}
+
+function bindSwipe() {
+  const el = document.getElementById('main-content');
+  let startX = 0, startY = 0;
+  el.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      dx < 0 ? nextMonth() : prevMonth();
+    }
+  }, { passive: true });
 }
 
 document.addEventListener('DOMContentLoaded', init);
