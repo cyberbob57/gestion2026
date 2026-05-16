@@ -25,10 +25,23 @@ function catColor(name) {
   return `hsl(${h}, 60%, 50%)`;
 }
 
+// Règles de pictogrammes définies par l'utilisateur (Paramètres)
+function getPictoRules() {
+  try {
+    const r = JSON.parse(state.parametres['picto_rules'] || '[]');
+    return Array.isArray(r) ? r : [];
+  } catch { return []; }
+}
+
 // Pictogramme précis : différencie notamment les véhicules par leur libellé
 function entryIcon(o) {
   const txt = [o && o.libelle_secondaire, o && o.libelle_libre, o && o.libelle_principal]
     .filter(Boolean).join(' ').toLowerCase();
+  // Règles personnalisées (prioritaires) — définies dans Paramètres
+  for (const r of getPictoRules()) {
+    const kw = (r && r.kw || '').trim().toLowerCase();
+    if (kw && r.emoji && txt.includes(kw)) return r.emoji;
+  }
   // Préfixe : icône de la catégorie principale (ex. 🛡️ Assurances) devant la voiture
   // (pas pour les catégories déjà "véhicule" pour éviter une voiture en double)
   const p = (o && o.libelle_principal) || '';
@@ -1172,6 +1185,26 @@ function renderParametres() {
       </div>
     </div>
 
+    <h3>Pictogrammes personnalisés</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="sub">Associez un emoji à un mot-clé. Si un libellé contient ce mot, l'emoji s'affiche. Les règles sont prioritaires sur les pictogrammes par défaut.</div>
+      </div>
+      <div class="picto-list" id="picto-list">
+        ${getPictoRules().map((r, i) => `
+        <div class="picto-item">
+          <span class="picto-emoji">${escHtml(r.emoji || '')}</span>
+          <span class="picto-kw">${escHtml(r.kw || '')}</span>
+          <button class="btn-icon danger" onclick="deletePictoRule(${i})" title="Supprimer">×</button>
+        </div>`).join('') || '<div class="sec-empty">Aucune règle personnalisée</div>'}
+      </div>
+      <div class="picto-add">
+        <input type="text" id="new-picto-kw" placeholder="Mot-clé (ex : netflix)" autocapitalize="none">
+        <input type="text" id="new-picto-emoji" placeholder="🎬" maxlength="8">
+        <button class="btn-small" onclick="addPictoRule()">Ajouter</button>
+      </div>
+    </div>
+
     <h3>Connexion Supabase</h3>
     <div class="params-item">
       <div class="params-item-left">
@@ -1285,6 +1318,26 @@ async function deleteMoyenPaiement(idx) {
   const mps = getMoyensPaiement();
   mps.splice(idx, 1);
   await setParam('moyens_paiement', JSON.stringify(mps));
+  showToast('Supprimé');
+  navigate('parametres');
+}
+async function addPictoRule() {
+  const kw = (document.getElementById('new-picto-kw')?.value || '').trim();
+  const emoji = (document.getElementById('new-picto-emoji')?.value || '').trim();
+  if (!kw || !emoji) { showToast('Indiquez un mot-clé et un emoji', 'error'); return; }
+  const rules = getPictoRules();
+  if (rules.some(r => (r.kw || '').toLowerCase() === kw.toLowerCase())) {
+    showToast('Ce mot-clé existe déjà', 'error'); return;
+  }
+  rules.push({ kw, emoji });
+  await setParam('picto_rules', JSON.stringify(rules));
+  showToast('Pictogramme ajouté ✓', 'success');
+  navigate('parametres');
+}
+async function deletePictoRule(idx) {
+  const rules = getPictoRules();
+  rules.splice(idx, 1);
+  await setParam('picto_rules', JSON.stringify(rules));
   showToast('Supprimé');
   navigate('parametres');
 }

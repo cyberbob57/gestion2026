@@ -1245,6 +1245,48 @@ a { color: var(--primary-mid); }
 }
 .btn-dup:active { background: #DBEAFE; transform: scale(.97); }
 
+/* ── Gestionnaire de pictogrammes ──────────────────────── */
+.picto-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.picto-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--primary-light);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.picto-item .picto-emoji {
+  font-size: 20px;
+  width: 30px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.picto-item .picto-kw {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picto-add {
+  display: flex;
+  gap: 8px;
+}
+.picto-add input {
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+}
+.picto-add input#new-picto-kw { flex: 1; min-width: 0; }
+.picto-add input#new-picto-emoji { width: 64px; text-align: center; font-size: 18px; }
+
 /* ── Pictogramme véhicule coloré (SVG) ─────────────────── */
 .veh-svg {
   vertical-align: middle;
