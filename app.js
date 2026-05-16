@@ -1,0 +1,1427 @@
+'use strict';
+
+// ═══════════════════════════════════════════════════════
+// CONFIG & CONSTANTES
+// ═══════════════════════════════════════════════════════
+const MOIS_KEYS = ['jan','fev','mar','avr','mai','jun','jul','aou','sep','oct','nov','dec'];
+const MOIS_FR   = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const MOIS_COURT= ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+
+const CAT_ICONS = {
+  'Habitation':'🏠','Assurances':'🛡️','Véhicules':'🚗','Véhicule':'🚗','Voiture':'🚗',
+  'Salaire':'💼','Banque postale':'🏦','BanqueDistributeur':'🏧','Mutuelle':'💊',
+  'Courses':'🛒','Carburant':'⛽','Impôts':'📋','Achats Internet':'🛍️','Achats divers':'🛒',
+  'Loisirs':'🎭','Restaurants sur place et à emporter':'🍽️','Coiffeur':'✂️',
+  'Dépenses de santé':'🏥','Remboursement santé':'💰','Habillement':'👕',
+  'Ameublement':'🛋️','Autoroute':'🛣️','Virement':'💸','Cadeaux':'🎁',
+  'Imprévus':'⚡','Dépôt d\'argent':'💰','Ongles':'💅','Carburant':'⛽',
+};
+
+// ═══════════════════════════════════════════════════════
+// ÉTAT GLOBAL
+// ═══════════════════════════════════════════════════════
+const now = new Date();
+const state = {
+  view: 'dashboard',
+  mois: now.getMonth(),
+  annee: now.getFullYear(),
+  mensualisations: [],
+  transactions: [],
+  libelles: [],
+  suivi: [],
+  soldes: [],
+  parametres: {},
+  sbUrl: localStorage.getItem('sb_url') || 'https://tzmimukdbnxciiywefgf.supabase.co',
+  sbKey: localStorage.getItem('sb_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6bWltdWtkYm54Y2lpeXdlZmdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTg5NjQsImV4cCI6MjA5NDQ5NDk2NH0.G8nFX0h6qoF_HvOVhaIVQS8GhzbZjddwyBnDnaPFolE',
+  connected: false,
+  syncing: false,
+};
+let sb = null;
+
+// ═══════════════════════════════════════════════════════
+// SUPABASE
+// ═══════════════════════════════════════════════════════
+async function initSupabase(url, key) {
+  try {
+    const { createClient } = window.supabase;
+    sb = createClient(url, key, { realtime: { params: { eventsPerSecond: 10 } } });
+    // test de connexion
+    const { error } = await sb.from('mensualisations').select('id', { count: 'exact', head: true });
+    if (error) throw error;
+    state.connected = true;
+    state.sbUrl = url; state.sbKey = key;
+    localStorage.setItem('sb_url', url);
+    localStorage.setItem('sb_key', key);
+    return true;
+  } catch (e) {
+    console.error('Supabase:', e.message);
+    return false;
+  }
+}
+
+async function loadData() {
+  if (!sb) return;
+  setSyncing(true);
+  try {
+    const [r1, r2, r3, r4, r5] = await Promise.all([
+      sb.from('mensualisations').select('*').order('jour'),
+      sb.from('transactions').select('*').order('date_transaction', { ascending: false }),
+      sb.from('libelles').select('*').order('ordre'),
+      sb.from('suivi_mensuel').select('*').order('jour').order('ordre'),
+      sb.from('soldes_depart').select('*'),
+    ]);
+    if (r1.data) state.mensualisations = r1.data;
+    if (r2.data) state.transactions = r2.data;
+    if (r3.data) state.libelles = r3.data;
+    if (r4.data) state.suivi = r4.data;
+    if (r5.data) state.soldes = r5.data;
+    const r6 = await sb.from('parametres').select('*');
+    if (r6.data) {
+      state.parametres = {};
+      r6.data.forEach(p => { state.parametres[p.cle] = p.valeur; });
+    }
+  } catch (e) {
+    showToast('Erreur de chargement', 'error');
+  }
+  setSyncing(false);
+  render();
+}
+
+function subscribeRealtime() {
+  if (!sb) return;
+  sb.channel('db-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'mensualisations' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'libelles' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'suivi_mensuel' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'soldes_depart' }, () => loadData())
+    .subscribe();
+}
+
+// ═══════════════════════════════════════════════════════
+// SETUP
+// ═══════════════════════════════════════════════════════
+async function setupSupabase() {
+  const url = document.getElementById('sb-url').value.trim().replace(/\/+$/, '');
+  const key = document.getElementById('sb-key').value.trim().replace(/\s+/g, '');
+  if (!url || !key) { showToast('Veuillez remplir les deux champs', 'error'); return; }
+  const btn = document.querySelector('.btn-primary');
+  btn.textContent = 'Connexion…'; btn.disabled = true;
+  const ok = await initSupabase(url, key);
+  if (ok) {
+    showApp();
+    await loadData();
+    subscribeRealtime();
+  } else {
+    showToast('Connexion échouée — vérifiez l\'URL et la clé', 'error');
+    btn.textContent = 'Se connecter'; btn.disabled = false;
+  }
+}
+
+function showApp() {
+  document.getElementById('screen-setup').classList.add('hidden');
+  document.getElementById('screen-app').classList.remove('hidden');
+}
+function showSetup() {
+  document.getElementById('screen-app').classList.add('hidden');
+  document.getElementById('screen-setup').classList.remove('hidden');
+}
+
+// ═══════════════════════════════════════════════════════
+// ROUTER & RENDER
+// ═══════════════════════════════════════════════════════
+function navigate(view) {
+  state.view = view;
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  const titles = { dashboard:'Accueil', mensualisation:'Mensualisation', suivi:'Suivi journalier', parametres:'Paramètres' };
+  document.getElementById('page-title').textContent = titles[view];
+  render();
+}
+
+function render() {
+  const main = document.getElementById('main-content');
+  switch (state.view) {
+    case 'dashboard':      main.innerHTML = renderDashboard(); bindDashboard(); break;
+    case 'mensualisation': main.innerHTML = renderMensualisation(); break;
+    case 'suivi':          main.innerHTML = renderSuivi(); bindSuivi(); break;
+    case 'parametres':     main.innerHTML = renderParametres(); bindParametres(); break;
+  }
+  updateMonthLabel();
+  updateSyncDot();
+}
+
+// ═══════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════
+function renderDashboard() {
+  const mk = MOIS_KEYS[state.mois];
+  const mensuD = state.mensualisations.filter(m => m.operation === 'Débit' && m[mk] != null).reduce((s,m) => s + parseFloat(m[mk]||0), 0);
+  const mensuC = state.mensualisations.filter(m => m.operation === 'Crédit' && m[mk] != null).reduce((s,m) => s + parseFloat(m[mk]||0), 0);
+  const tranD  = state.transactions.filter(t => isSameMois(t.date_transaction) && t.operation === 'Débit').reduce((s,t) => s + parseFloat(t.montant||0), 0);
+  const tranC  = state.transactions.filter(t => isSameMois(t.date_transaction) && t.operation === 'Crédit').reduce((s,t) => s + parseFloat(t.montant||0), 0);
+  const totalD = mensuD + tranD;
+  const totalC = mensuC + tranC;
+  const solde  = totalC - totalD;
+  const soldeClass = solde >= 0 ? 'positive' : 'negative';
+
+  // Prochains prélèvements (15 jours)
+  const today = now.getDate();
+  const limit = today + 15;
+  const upcoming = state.mensualisations
+    .filter(m => m.operation === 'Débit' && m[mk] != null && m.jour >= today && m.jour <= Math.min(limit, 31))
+    .sort((a,b) => a.jour - b.jour)
+    .slice(0, 6);
+
+  return `
+  <div class="solde-card">
+    <div class="solde-label">Solde net — ${MOIS_FR[state.mois]} ${state.annee}</div>
+    <div class="solde-amount ${soldeClass}">${fmt(solde)}</div>
+    <div class="solde-sub">
+      <div class="solde-sub-item">
+        <div class="label">↓ Débits</div>
+        <div class="value">${fmt(totalD)}</div>
+      </div>
+      <div class="solde-sub-item">
+        <div class="label">↑ Crédits</div>
+        <div class="value">${fmt(totalC)}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Évolution 6 mois</div>
+    <div class="chart-container"><canvas id="chart-solde"></canvas></div>
+  </div>
+
+  ${upcoming.length > 0 ? `
+  <div class="card">
+    <div class="card-title">Prochains prélèvements</div>
+    <ul class="upcoming-list">
+      ${upcoming.map(m => `
+      <li class="upcoming-item">
+        <div class="upcoming-day">${m.jour}</div>
+        <div class="upcoming-info">
+          <div class="name">${m.libelle_secondaire || m.libelle_principal}</div>
+          <div class="sub">${m.libelle_principal} · ${m.type_operation || ''}</div>
+        </div>
+        <div class="upcoming-amount">−${fmt(m[mk])}</div>
+      </li>`).join('')}
+    </ul>
+  </div>` : ''}`;
+}
+
+function bindDashboard() {
+  const canvas = document.getElementById('chart-solde');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const labels = [], credits = [], debits = [];
+  for (let i = 5; i >= 0; i--) {
+    let m = state.mois - i; let y = state.annee;
+    if (m < 0) { m += 12; y--; }
+    const mk = MOIS_KEYS[m];
+    labels.push(MOIS_COURT[m]);
+    const d = state.mensualisations.filter(x => x.operation==='Débit' && x[mk]!=null).reduce((s,x)=>s+parseFloat(x[mk]||0),0);
+    const c = state.mensualisations.filter(x => x.operation==='Crédit' && x[mk]!=null).reduce((s,x)=>s+parseFloat(x[mk]||0),0);
+    debits.push(parseFloat(d.toFixed(2)));
+    credits.push(parseFloat(c.toFixed(2)));
+  }
+  new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Crédits', data: credits, backgroundColor: '#86EFAC', borderRadius: 6 },
+        { label: 'Débits',  data: debits,  backgroundColor: '#FCA5A5', borderRadius: 6 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: '#F3F4F6' }, ticks: { callback: v => v.toLocaleString('fr-FR') + ' €' } }
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// MENSUALISATION
+// ═══════════════════════════════════════════════════════
+function renderMensualisation() {
+  const mensuView = window._mensuView || 'mensuel';
+  const tabs = `
+  <div class="mensu-tabs">
+    <button class="mensu-tab${mensuView==='mensuel'?' active':''}" onclick="window._mensuView='mensuel'; render()">📅 Mensuel</button>
+    <button class="mensu-tab${mensuView==='annuel'?' active':''}" onclick="window._mensuView='annuel'; render()">📆 Annuel</button>
+  </div>`;
+
+  if (mensuView === 'annuel') return tabs + renderMensuAnnee();
+
+  const mk = MOIS_KEYS[state.mois];
+  const search = (window._mensuSearch || '').toLowerCase();
+  let rows = state.mensualisations.filter(m => m[mk] != null && m[mk] !== '');
+  if (search) rows = rows.filter(m =>
+    (m.libelle_principal||'').toLowerCase().includes(search) ||
+    (m.libelle_secondaire||'').toLowerCase().includes(search)
+  );
+  const totalD = rows.filter(m => m.operation==='Débit').reduce((s,m)=>s+parseFloat(m[mk]||0),0);
+  const totalC = rows.filter(m => m.operation==='Crédit').reduce((s,m)=>s+parseFloat(m[mk]||0),0);
+  const solde  = totalC - totalD;
+
+  return tabs + `
+  <div class="view-toolbar">
+    <button class="btn-add" onclick="showAddMensu()">＋ Ajouter</button>
+    <div class="search-bar">
+      <span>🔍</span>
+      <input type="search" placeholder="Rechercher…" value="${search}"
+        oninput="window._mensuSearch=this.value; render()">
+    </div>
+  </div>
+  <div class="totals-bar">
+    <div class="total-chip debit"><div class="label">Débits</div><div class="value">${fmt(totalD)}</div></div>
+    <div class="total-chip credit"><div class="label">Crédits</div><div class="value">${fmt(totalC)}</div></div>
+    <div class="total-chip solde"><div class="label">Solde</div><div class="value" style="color:${solde>=0?'var(--credit)':'var(--debit)'}">${fmt(solde)}</div></div>
+  </div>
+  <div class="mensu-list">
+    ${rows.length === 0 ? '<div class="empty-state"><div class="icon">📋</div><p>Aucune mensualisation ce mois</p></div>' :
+      rows.map((m, idx) => `
+        <div class="mensu-row${idx % 2 === 1 ? ' mensu-row-alt' : ''}" onclick="showEditMensu('${m.id}')">
+          <div class="mensu-day">${m.jour}</div>
+          <div class="mensu-info">
+            <div class="principal">${escHtml(m.libelle_principal)}</div>
+            <div class="secondaire">${escHtml(m.libelle_secondaire || '—')}</div>
+          </div>
+          <div class="mensu-right">
+            <div class="mensu-amount ${m.operation.toLowerCase()}">
+              ${m.operation==='Débit'?'−':'+'}${fmt(m[mk])}
+            </div>
+            <div class="mensu-type">${escHtml(m.type_operation || '')}</div>
+          </div>
+        </div>`).join('')}
+  </div>`;
+}
+
+function renderMensuAnnee() {
+  const rows = [...state.mensualisations].sort((a,b) => (a.libelle_principal||'').localeCompare(b.libelle_principal||'') || (a.jour||0)-(b.jour||0));
+
+  // Grouper par libellé principal
+  const groups = {};
+  rows.forEach(m => {
+    const g = m.libelle_principal || '—';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(m);
+  });
+
+  // Totaux mensuels
+  const debitMois  = Array(12).fill(0);
+  const creditMois = Array(12).fill(0);
+
+  let bodyHtml = '';
+  Object.entries(groups).forEach(([principal, items]) => {
+    bodyHtml += `<tr class="ma-group-row"><td colspan="14"><span>${escHtml(principal)}</span></td></tr>`;
+    items.forEach(m => {
+      let rowTotal = 0;
+      const cells = MOIS_KEYS.map((mk, i) => {
+        const v = m[mk];
+        if (v != null && v !== '') {
+          const n = parseFloat(v);
+          rowTotal += n;
+          if (m.operation === 'Débit') debitMois[i] += n; else creditMois[i] += n;
+          return `<td class="ma-amt ${m.operation==='Débit'?'debit':'credit'}">${n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`;
+        }
+        return `<td class="ma-empty"></td>`;
+      }).join('');
+      bodyHtml += `
+      <tr class="ma-row" onclick="showEditMensu('${m.id}')">
+        <td class="ma-label">
+          <div class="ma-lib">${escHtml(m.libelle_secondaire || m.libelle_principal)}</div>
+          <div class="ma-type">${escHtml(m.type_operation || '')} · j.${m.jour||'?'}</div>
+        </td>
+        ${cells}
+        <td class="ma-total ${m.operation==='Débit'?'debit':'credit'}">${rowTotal.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      </tr>`;
+    });
+  });
+
+  const totalD = debitMois.reduce((a,b)=>a+b,0);
+  const totalC = creditMois.reduce((a,b)=>a+b,0);
+  const soldeMois = MOIS_KEYS.map((_,i) => creditMois[i] - debitMois[i]);
+
+  return `
+  <div class="ma-wrap">
+    <div class="ma-add-row">
+      <button class="btn-add" onclick="showAddMensu()">＋ Ajouter</button>
+    </div>
+    <div class="ma-scroll">
+      <table class="ma-table">
+        <thead>
+          <tr>
+            <th class="ma-th-label">Libellé</th>
+            ${MOIS_COURT.map(m=>`<th class="ma-th-mois">${m}</th>`).join('')}
+            <th class="ma-th-total">Total</th>
+          </tr>
+        </thead>
+        <tbody>${bodyHtml}</tbody>
+        <tfoot>
+          <tr class="ma-foot debit">
+            <td>Débits</td>
+            ${debitMois.map(v=>`<td class="ma-amt debit">${v>0?v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}</td>`).join('')}
+            <td class="ma-total debit">${totalD.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+          </tr>
+          <tr class="ma-foot credit">
+            <td>Crédits</td>
+            ${creditMois.map(v=>`<td class="ma-amt credit">${v>0?v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}</td>`).join('')}
+            <td class="ma-total credit">${totalC.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+          </tr>
+          <tr class="ma-foot solde">
+            <td>Solde</td>
+            ${soldeMois.map(v=>`<td class="ma-amt ${v>=0?'credit':'debit'}">${v!==0?v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}</td>`).join('')}
+            <td class="ma-total ${(totalC-totalD)>=0?'credit':'debit'}">${(totalC-totalD).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// JOURNAL
+// ═══════════════════════════════════════════════════════
+function renderJournal() {
+  const trs = state.transactions.filter(t => isSameMois(t.date_transaction));
+  // grouper par date
+  const byDate = {};
+  trs.forEach(t => {
+    const d = t.date_transaction;
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(t);
+  });
+  const dates = Object.keys(byDate).sort((a,b) => b.localeCompare(a));
+
+  const totalD = trs.filter(t=>t.operation==='Débit').reduce((s,t)=>s+parseFloat(t.montant||0),0);
+  const totalC = trs.filter(t=>t.operation==='Crédit').reduce((s,t)=>s+parseFloat(t.montant||0),0);
+
+  return `
+  <div class="view-toolbar">
+    <button class="btn-add" onclick="showAddTransaction()">＋ Saisir</button>
+  </div>
+  <div class="totals-bar">
+    <div class="total-chip debit"><div class="label">Débits</div><div class="value">${fmt(totalD)}</div></div>
+    <div class="total-chip credit"><div class="label">Crédits</div><div class="value">${fmt(totalC)}</div></div>
+  </div>
+  ${dates.length === 0 ? `<div class="empty-state"><div class="icon">📔</div><p>Aucune transaction ce mois</p></div>` :
+    dates.map(d => `
+    <div class="journal-day-group">
+      <div class="journal-day-label">${fmtDate(d)}</div>
+      ${byDate[d].map(t => `
+      <div class="journal-item" onclick="showEditTransaction('${t.id}')">
+        <div class="journal-cat-icon">${CAT_ICONS[t.libelle_principal] || '💳'}</div>
+        <div class="journal-info">
+          <div class="name">${t.libelle_secondaire || t.libelle_principal || 'Sans catégorie'}</div>
+          <div class="sub">${t.libelle_principal || ''} · ${t.notes || ''}</div>
+        </div>
+        <div class="journal-amount" style="color:var(--${t.operation==='Débit'?'debit':'credit'})">
+          ${t.operation==='Débit'?'−':'+'}${fmt(t.montant)}
+        </div>
+      </div>`).join('')}
+    </div>`).join('')}`;
+}
+
+// ═══════════════════════════════════════════════════════
+// SUIVI MENSUEL
+// ═══════════════════════════════════════════════════════
+function getSoldeDepart(mois, annee) {
+  const s = state.soldes.find(x => x.mois === (mois + 1) && x.annee === annee);
+  return s ? parseFloat(s.solde) : 0;
+}
+
+function getSuiviMois() {
+  return state.suivi
+    .filter(s => s.mois === (state.mois + 1) && s.annee === state.annee)
+    .sort((a, b) => (a.jour || 0) - (b.jour || 0) || (a.ordre || 0) - (b.ordre || 0));
+}
+
+function renderSuivi() {
+  const entries    = getSuiviMois();
+  const soldeDepart = getSoldeDepart(state.mois, state.annee);
+  const totalD = entries.reduce((s, e) => s + parseFloat(e.debit  || 0), 0);
+  const totalC = entries.reduce((s, e) => s + parseFloat(e.credit || 0), 0);
+  const soldeFin = soldeDepart + totalC - totalD;
+
+  // Calcul solde courant ligne par ligne
+  let runBalance = soldeDepart;
+  const rows = entries.map(e => {
+    runBalance += parseFloat(e.credit || 0) - parseFloat(e.debit || 0);
+    return { ...e, _solde: runBalance };
+  });
+
+  return `
+  <div class="suivi-infobar">
+    <div class="suivi-info-item clickable" onclick="showSoldeDepart()" title="Cliquer pour modifier">
+      <div class="sii-label">Report</div>
+      <div class="sii-value ${soldeDepart >= 0 ? 'positive' : 'negative'}">${fmt(soldeDepart)}</div>
+    </div>
+    <div class="suivi-info-item">
+      <div class="sii-label">Débits</div>
+      <div class="sii-value" style="color:var(--debit)">${fmt(totalD)}</div>
+    </div>
+    <div class="suivi-info-item">
+      <div class="sii-label">Crédits</div>
+      <div class="sii-value" style="color:var(--credit)">${fmt(totalC)}</div>
+    </div>
+    <div class="suivi-info-item">
+      <div class="sii-label">Solde</div>
+      <div class="sii-value ${soldeFin >= 0 ? 'positive' : 'negative'}">${fmt(soldeFin)}</div>
+    </div>
+  </div>
+
+  <div class="suivi-toolbar">
+    <button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>
+    <button class="btn-add" onclick="showAddSuiviEntry()">＋ Saisir</button>
+  </div>
+
+  ${rows.length === 0
+    ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>Cliquez sur "Inscrire les mensualisations" pour commencer</small></p></div>`
+    : `<div class="suivi-table-wrap">
+    <table class="suivi-table">
+      <thead>
+        <tr>
+          <th class="col-jour">Jour</th>
+          <th class="col-libelle">Libellé</th>
+          <th class="col-type">Type</th>
+          <th class="col-cheque">Chèque</th>
+          <th class="col-pointe">P</th>
+          <th class="col-amount">Crédit</th>
+          <th class="col-amount">Débit</th>
+          <th class="col-solde">Solde</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((e, idx) => `
+        <tr class="suivi-row${e.is_mensualisation ? ' is-mensu' : ''}${idx % 2 === 1 ? ' suivi-row-alt' : ''}" onclick="showEditSuiviEntry('${e.id}')">
+          <td class="col-jour">${e.jour || '—'}</td>
+          <td class="col-libelle">
+            <div class="lib-principal">${escHtml(e.libelle_principal || '')}</div>
+            ${e.libelle_secondaire ? `<div class="lib-secondaire">${escHtml(e.libelle_secondaire)}</div>` : ''}
+            ${e.libelle_libre ? `<div class="lib-libre">${escHtml(e.libelle_libre)}</div>` : ''}
+          </td>
+          <td class="col-type">${(()=>{ const {base,echeance}=parsePaypal4X(e.type_operation||''); return echeance ? `${escHtml(base)} <span class="echeance-badge">Éch.${echeance}/4</span>` : escHtml(base); })()}</td>
+          <td class="col-cheque">${escHtml(e.num_cheque || '')}</td>
+          <td class="col-pointe">
+            <span class="pointe-badge${e.pointe === '✓' ? ' pointed' : ''}"
+              onclick="event.stopPropagation(); togglePointe('${e.id}','${e.pointe||''}')">${e.pointe === '✓' ? '✓' : '○'}</span>
+          </td>
+          <td class="col-amount credit-cell">${e.credit != null ? fmt(e.credit) : ''}</td>
+          <td class="col-amount debit-cell">${e.debit  != null ? fmt(e.debit)  : ''}</td>
+          <td class="col-solde ${e._solde >= 0 ? 'positive' : 'negative'}">${fmt(e._solde)}</td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr class="suivi-total-row">
+          <td colspan="5">Totaux ${MOIS_FR[state.mois]}</td>
+          <td class="col-amount credit-cell">${fmt(totalC)}</td>
+          <td class="col-amount debit-cell">${fmt(totalD)}</td>
+          <td class="col-solde ${soldeFin >= 0 ? 'positive' : 'negative'}">${fmt(soldeFin)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>`}`;
+}
+
+function bindSuivi() { /* events délégués via onclick inline */ }
+
+async function togglePointe(id, current) {
+  const newVal = current === '✓' ? '' : '✓';
+  await sb.from('suivi_mensuel').update({ pointe: newVal }).eq('id', id);
+  await loadData();
+}
+
+async function inscrireMensualisations() {
+  const mk    = MOIS_KEYS[state.mois];
+  const mois  = state.mois + 1;
+  const annee = state.annee;
+
+  const toInsert = state.mensualisations.filter(m => m[mk] != null);
+  if (toInsert.length === 0) { showToast('Aucune mensualisation pour ce mois', 'error'); return; }
+
+  const existing = state.suivi.filter(s => s.mois === mois && s.annee === annee && s.is_mensualisation);
+  if (existing.length > 0) {
+    if (!confirm(`Remplacer les ${existing.length} mensualisations déjà inscrites ?`)) return;
+    await sb.from('suivi_mensuel').delete().eq('mois', mois).eq('annee', annee).eq('is_mensualisation', true);
+  }
+
+  const rows = toInsert.map((m, i) => ({
+    annee,
+    mois,
+    jour:               m.jour,
+    libelle_principal:  m.libelle_principal,
+    libelle_secondaire: m.libelle_secondaire,
+    type_operation:     m.type_operation,
+    credit: m.operation === 'Crédit' ? parseFloat(m[mk]) : null,
+    debit:  m.operation === 'Débit'  ? parseFloat(m[mk]) : null,
+    is_mensualisation: true,
+    ordre: i,
+  }));
+
+  setSyncing(true);
+  const { error } = await sb.from('suivi_mensuel').insert(rows);
+  setSyncing(false);
+  if (error) { showToast('Erreur : ' + error.message, 'error'); return; }
+  showToast(`${rows.length} mensualisations inscrites ✓`, 'success');
+  await loadData();
+}
+
+// ── Solde de départ ──────────────────────────────────────
+function showSoldeDepart() {
+  const current = getSoldeDepart(state.mois, state.annee);
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Solde de report — ${MOIS_FR[state.mois]} ${state.annee}</div>
+  <div class="modal-form" id="solde-form">
+    <div class="form-group">
+      <label>Solde de report (€)</label>
+      <input type="number" step="0.01" id="solde-input" value="${current}" placeholder="0,00">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveSoldeDepart()">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+async function saveSoldeDepart() {
+  const val = parseFloat(document.getElementById('solde-input').value);
+  if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
+  const mois = state.mois + 1;
+  const annee = state.annee;
+  setSyncing(true);
+  const { error } = await sb.from('soldes_depart')
+    .upsert({ annee, mois, solde: val }, { onConflict: 'annee,mois' });
+  setSyncing(false);
+  if (error) { showToast('Erreur : ' + error.message, 'error'); return; }
+  showToast('Solde de report enregistré', 'success');
+  closeModal();
+  await loadData();
+}
+
+// ── Formulaire saisie opération ──────────────────────────
+function suiviForm(data = {}) {
+  const uid = ++_libUid;
+  const { base: typeBase, echeance: echeanceVal } = parsePaypal4X(data.type_operation || '');
+  const isPaypal4X = typeBase === 'Paypal en 4X';
+  return `
+  <div class="row2">
+    <div class="form-group">
+      <label>Jour</label>
+      <input type="number" name="jour" min="1" max="31" value="${data.jour || ''}" placeholder="1–31">
+    </div>
+    <div class="form-group">
+      <label>N° Chèque</label>
+      <input type="text" name="num_cheque" value="${escHtml(data.num_cheque || '')}" placeholder="Optionnel">
+    </div>
+  </div>
+  ${libSelects(data)}
+  <div class="form-group">
+    <label>Libellé libre</label>
+    <input type="text" name="libelle_libre" value="${escHtml(data.libelle_libre || '')}" placeholder="Description libre…">
+  </div>
+  <div class="form-group">
+    <label>Type d'opération</label>
+    <select name="type_operation" onchange="autoFillCheque(this); toggleEcheance4X(this,${uid})">
+      ${getMoyensPaiement().map(t => `<option${typeBase===t?' selected':''}>${t}</option>`).join('')}
+    </select>
+  </div>
+  ${echeanceGroup4X(uid, isPaypal4X, echeanceVal || 1)}
+  <div class="row2">
+    <div class="form-group">
+      <label>Crédit (€)</label>
+      <input type="number" step="0.01" name="credit" value="${data.credit != null ? data.credit : ''}" placeholder="0,00">
+    </div>
+    <div class="form-group">
+      <label>Débit (€)</label>
+      <input type="number" step="0.01" name="debit" value="${data.debit != null ? data.debit : ''}" placeholder="0,00">
+    </div>
+  </div>`;
+}
+
+function showAddSuiviEntry() {
+  const today = new Date().getDate();
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Nouvelle opération</div>
+  <div class="modal-form" id="suivi-form">
+    ${suiviForm({ jour: today })}
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveSuiviEntry(null)">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+function showEditSuiviEntry(id) {
+  const e = state.suivi.find(x => x.id === id);
+  if (!e) return;
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Modifier l'opération</div>
+  <div class="modal-form" id="suivi-form">
+    ${suiviForm(e)}
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="deleteSuiviEntry('${id}')">Supprimer</button>
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveSuiviEntry('${id}')">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+async function saveSuiviEntry(id) {
+  const form = document.getElementById('suivi-form');
+  const data = {};
+  form.querySelectorAll('[name]').forEach(el => {
+    if (el.name === 'echeance') return; // géré séparément
+    data[el.name] = el.value.trim() || null;
+  });
+  // Combine Paypal en 4X + écheance
+  if (data.type_operation === 'Paypal en 4X') {
+    const echeanceSel = form.querySelector('[name="echeance"]');
+    const n = echeanceSel ? echeanceSel.value : '1';
+    data.type_operation = `Paypal en 4X – Éch. ${n}/4`;
+  }
+  data.jour   = data.jour   ? parseInt(data.jour)    : null;
+  data.credit = data.credit ? parseFloat(data.credit) : null;
+  data.debit  = data.debit  ? parseFloat(data.debit)  : null;
+  if (data.credit == null && data.debit == null) {
+    showToast('Indiquez un crédit ou un débit', 'error'); return;
+  }
+  if (!id) {
+    data.annee = state.annee;
+    data.mois  = state.mois + 1;
+    data.is_mensualisation = false;
+  }
+  setSyncing(true);
+  let err;
+  if (id) {
+    ({ error: err } = await sb.from('suivi_mensuel').update(data).eq('id', id));
+  } else {
+    ({ error: err } = await sb.from('suivi_mensuel').insert(data));
+  }
+  setSyncing(false);
+  if (err) { showToast('Erreur : ' + err.message, 'error'); return; }
+  showToast(id ? 'Opération mise à jour' : 'Opération ajoutée', 'success');
+  closeModal();
+  // Mettre à jour le prochain numéro de chèque
+  const savedType = data.type_operation || '';
+  const savedNum = data.num_cheque;
+  if (savedType.includes('Chèque') && savedNum && /^\d+$/.test(savedNum)) {
+    const cle = savedType.includes('Robert') ? 'chequier_robert' : 'chequier_carmela';
+    const next = String(parseInt(savedNum) + 1);
+    await setParam(cle, next);
+  }
+  await loadData();
+}
+
+async function deleteSuiviEntry(id) {
+  if (!confirm('Supprimer cette opération ?')) return;
+  closeModal();
+  await sb.from('suivi_mensuel').delete().eq('id', id);
+  showToast('Supprimée', 'success');
+  await loadData();
+}
+
+// ═══════════════════════════════════════════════════════
+// PARAMÈTRES
+// ═══════════════════════════════════════════════════════
+function renderParametres() {
+  const soldeExercice = state.soldes.find(x => x.mois === 1 && x.annee === state.annee);
+  const soldeVal = soldeExercice ? parseFloat(soldeExercice.solde) : 0;
+
+  return `
+  <div class="params-section">
+
+    <h3>Solde bancaire début d'exercice</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item" style="border:none;padding:0 0 12px 0">
+        <div class="params-item-left">
+          <div class="name">Solde au 1er janvier ${state.annee}</div>
+          <div class="sub">Solde réel du compte bancaire à l'ouverture</div>
+        </div>
+      </div>
+      <div class="chip-input-row">
+        <input type="number" step="0.01" id="solde-exercice-inp" value="${soldeVal}" placeholder="0,00">
+        <button class="btn-small" onclick="saveSoldeExercice()">Enregistrer</button>
+      </div>
+    </div>
+
+    <h3>Libellés</h3>
+    <div class="libelles-manager" id="libelles-manager">
+      ${state.libelles.map(l => {
+        const secs = getSecondaires(l.principal);
+        return `
+        <div class="libelle-block" id="lib-block-${l.id}">
+          <div class="libelle-block-header">
+            <button class="libelle-toggle" onclick="toggleLibelleBlock('${l.id}')">
+              <span class="toggle-arrow">▶</span>
+              <strong>${escHtml(l.principal)}</strong>
+              <span class="sec-count">${secs.length} secondaire${secs.length!==1?'s':''}</span>
+            </button>
+            <button class="btn-icon danger" onclick="deleteLibelle('${l.id}')" title="Supprimer">×</button>
+          </div>
+          <div class="libelle-block-body hidden" id="lib-body-${l.id}">
+            <div class="secondaires-list" id="secs-${l.id}">
+              ${secs.map((s,i) => `
+              <div class="sec-item">
+                <span>${escHtml(s)}</span>
+                <button class="btn-icon danger" onclick="deleteSecondaire('${l.id}', ${i})" title="Supprimer">×</button>
+              </div>`).join('') || '<div class="sec-empty">Aucun secondaire</div>'}
+            </div>
+            <div class="chip-input-row" style="margin-top:8px">
+              <input type="text" id="new-sec-${l.id}" placeholder="Nouveau secondaire…">
+              <button class="btn-small" onclick="addSecondaire('${l.id}')">+</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="chip-input-row" style="margin-top:12px">
+      <input type="text" id="new-principal" placeholder="Nouveau libellé principal…">
+      <button class="btn-small" onclick="addLibellePrincipal()">Ajouter</button>
+    </div>
+
+    <h3>Moyens de paiement</h3>
+    <div class="card" style="margin:0">
+      <div class="mp-list" id="mp-list">
+        ${getMoyensPaiement().map((mp, i) => `
+        <div class="mp-item">
+          <span>${escHtml(mp)}</span>
+          <button class="btn-icon danger" onclick="deleteMoyenPaiement(${i})" title="Supprimer">×</button>
+        </div>`).join('') || '<div class="sec-empty">Aucun moyen de paiement</div>'}
+      </div>
+      <div class="chip-input-row" style="margin-top:8px">
+        <input type="text" id="new-mp" placeholder="Nouveau moyen de paiement…">
+        <button class="btn-small" onclick="addMoyenPaiement()">Ajouter</button>
+      </div>
+    </div>
+
+    <h3>Chéquiers</h3>
+    <div class="card" style="margin:0">
+      <div class="chequier-row">
+        <div class="chequier-label">🔵 Chéquier Robert</div>
+        <div class="chip-input-row" style="margin:4px 0 0 0">
+          <input type="text" id="cheq-robert" value="${escHtml(state.parametres['chequier_robert'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
+          <button class="btn-small" onclick="saveChequier('robert')">OK</button>
+        </div>
+      </div>
+      <div class="chequier-row" style="margin-top:12px">
+        <div class="chequier-label">🔴 Chéquier Carméla</div>
+        <div class="chip-input-row" style="margin:4px 0 0 0">
+          <input type="text" id="cheq-carmela" value="${escHtml(state.parametres['chequier_carmela'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
+          <button class="btn-small" onclick="saveChequier('carmela')">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <h3>Connexion Supabase</h3>
+    <div class="params-item">
+      <div class="params-item-left">
+        <div class="name">Base de données</div>
+        <div class="sub">${state.sbUrl ? new URL(state.sbUrl).host : 'Non configurée'}</div>
+      </div>
+      <div class="params-item-right">
+        <span class="status-badge ${state.connected?'connected':'disconnected'}">${state.connected?'● Connecté':'○ Déconnecté'}</span>
+        ${state.connected ? `<button class="btn-icon danger" onclick="disconnectSb()" title="Déconnecter">✕</button>` : ''}
+      </div>
+    </div>
+
+    <h3>Export / Import</h3>
+    <div class="params-item">
+      <div class="params-item-left"><div class="name">Exporter les données</div><div class="sub">JSON — à sauvegarder dans iCloud</div></div>
+      <button class="btn-small" onclick="exportData()">Exporter</button>
+    </div>
+    <div class="params-item">
+      <div class="params-item-left"><div class="name">Importer des données</div><div class="sub">Restaurer depuis un fichier JSON</div></div>
+      <button class="btn-small" onclick="document.getElementById('import-file').click()">Importer</button>
+      <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
+    </div>
+
+    <h3>Informations</h3>
+    <div class="params-item">
+      <div class="params-item-left">
+        <div class="name">Gestion 2026</div>
+        <div class="sub">v1.3 · PWA · Sync Supabase</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindParametres() {
+  const inp = document.getElementById('new-principal');
+  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addLibellePrincipal(); });
+}
+
+function toggleLibelleBlock(id) {
+  const body = document.getElementById(`lib-body-${id}`);
+  const arrow = document.querySelector(`#lib-block-${id} .toggle-arrow`);
+  if (!body) return;
+  body.classList.toggle('hidden');
+  if (arrow) arrow.textContent = body.classList.contains('hidden') ? '▶' : '▼';
+}
+
+async function saveSoldeExercice() {
+  const val = parseFloat(document.getElementById('solde-exercice-inp').value);
+  if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
+  const { error } = await sb.from('soldes_depart').upsert(
+    { annee: state.annee, mois: 1, solde: val },
+    { onConflict: 'annee,mois' }
+  );
+  if (error) { showToast('Erreur enregistrement', 'error'); return; }
+  showToast('Solde début d\'exercice enregistré ✓', 'success');
+  await loadData();
+}
+
+async function addSecondaire(libId) {
+  const inp = document.getElementById(`new-sec-${libId}`);
+  const val = (inp?.value || '').trim();
+  if (!val) return;
+  const lib = state.libelles.find(l => l.id === libId);
+  if (!lib) return;
+  const secs = getSecondaires(lib.principal);
+  if (secs.includes(val)) { showToast('Déjà existant', 'error'); return; }
+  secs.push(val);
+  const { error } = await sb.from('libelles').update({ secondaires: secs }).eq('id', libId);
+  if (error) { showToast('Erreur', 'error'); return; }
+  inp.value = '';
+  showToast('Secondaire ajouté', 'success');
+  await loadData();
+  navigate('parametres');
+}
+
+async function deleteSecondaire(libId, idx) {
+  const lib = state.libelles.find(l => l.id === libId);
+  if (!lib) return;
+  const secs = getSecondaires(lib.principal);
+  secs.splice(idx, 1);
+  const { error } = await sb.from('libelles').update({ secondaires: secs }).eq('id', libId);
+  if (error) { showToast('Erreur', 'error'); return; }
+  showToast('Secondaire supprimé');
+  await loadData();
+  navigate('parametres');
+}
+
+async function addMoyenPaiement() {
+  const inp = document.getElementById('new-mp');
+  const val = (inp?.value || '').trim();
+  if (!val) return;
+  const mps = getMoyensPaiement();
+  if (mps.includes(val)) { showToast('Déjà existant', 'error'); return; }
+  mps.push(val);
+  await setParam('moyens_paiement', JSON.stringify(mps));
+  inp.value = '';
+  showToast('Moyen de paiement ajouté ✓', 'success');
+  navigate('parametres');
+}
+async function deleteMoyenPaiement(idx) {
+  const mps = getMoyensPaiement();
+  mps.splice(idx, 1);
+  await setParam('moyens_paiement', JSON.stringify(mps));
+  showToast('Supprimé');
+  navigate('parametres');
+}
+async function saveChequier(nom) {
+  const inp = document.getElementById(`cheq-${nom}`);
+  const val = (inp?.value || '').trim();
+  const cle = nom === 'robert' ? 'chequier_robert' : 'chequier_carmela';
+  await setParam(cle, val);
+  showToast('Numéro de chéquier enregistré ✓', 'success');
+}
+
+function autoFillCheque(sel) {
+  const val = sel.value;
+  if (!val.includes('Chèque')) return;
+  const next = getNextCheque(val);
+  if (!next) return;
+  const inp = sel.closest('form, .modal-body')?.querySelector('[name="num_cheque"]');
+  if (inp && !inp.value) inp.value = next;
+}
+
+// ═══════════════════════════════════════════════════════
+// MODALS — MENSUALISATION
+// ═══════════════════════════════════════════════════════
+function monthsFields(data = {}) {
+  return `<div class="months-grid">
+    ${MOIS_KEYS.map((mk, i) => `
+    <div class="month-input-group">
+      <label>${MOIS_COURT[i]}</label>
+      <input type="number" step="0.01" name="${mk}" value="${data[mk] != null ? data[mk] : ''}" placeholder="—">
+    </div>`).join('')}
+  </div>`;
+}
+
+// ── Dropdown secondaire lié au principal ────────────────
+let _libUid = 0;
+
+function getSecondaires(principal) {
+  const lib = state.libelles.find(l => l.principal === principal);
+  if (!lib) return [];
+  const s = lib.secondaires;
+  if (Array.isArray(s)) return s;
+  try { return JSON.parse(s); } catch { return []; }
+}
+
+function updateSecondaires(principalVal, uid) {
+  const secs = getSecondaires(principalVal);
+  const dl  = document.getElementById('dl-sec-' + uid);
+  const inp = document.getElementById('inp-sec-' + uid);
+  if (!dl) return;
+  // Mettre à jour la liste des options
+  dl.innerHTML = secs.map(s => `<option value="${escHtml(s)}">`).join('');
+  // Vider le secondaire si la valeur actuelle n'appartient pas à la nouvelle liste
+  if (inp && secs.length > 0 && !secs.includes(inp.value)) inp.value = '';
+}
+
+function libSelects(data = {}) {
+  const uid       = ++_libUid;
+  const principals = state.libelles.map(l => l.principal);
+  const initSecs   = getSecondaires(data.libelle_principal || '');
+  return `
+  <div class="form-group">
+    <label>Libellé principal</label>
+    <input type="text" name="libelle_principal"
+           value="${escHtml(data.libelle_principal||'')}"
+           list="dl-prin-${uid}" placeholder="Choisir ou saisir…"
+           oninput="updateSecondaires(this.value,${uid})"
+           onchange="updateSecondaires(this.value,${uid})">
+    <datalist id="dl-prin-${uid}">
+      ${principals.map(p => `<option value="${escHtml(p)}">`).join('')}
+    </datalist>
+  </div>
+  <div class="form-group">
+    <label>Libellé secondaire</label>
+    <input type="text" id="inp-sec-${uid}" name="libelle_secondaire"
+           value="${escHtml(data.libelle_secondaire||'')}"
+           list="dl-sec-${uid}" placeholder="Choisir ou saisir…">
+    <datalist id="dl-sec-${uid}">
+      ${initSecs.map(s => `<option value="${escHtml(s)}">`).join('')}
+    </datalist>
+  </div>`;
+}
+
+// Décode "Paypal en 4X – Éch. N/4" → { base, echeance }
+function parsePaypal4X(typeStr) {
+  const m = (typeStr||'').match(/^Paypal en 4X\s*[–-]\s*Éch\.\s*(\d)\/4$/);
+  if (m) return { base: 'Paypal en 4X', echeance: parseInt(m[1]) };
+  return { base: typeStr, echeance: null };
+}
+function echeanceGroup4X(uid, isVisible, selectedVal) {
+  return `
+  <div class="form-group echeance-grp" id="echeance-grp-${uid}" style="display:${isVisible?'':'none'}">
+    <label>Échéance Paypal 4X</label>
+    <select name="echeance" id="echeance-sel-${uid}">
+      ${[1,2,3,4].map(n=>`<option value="${n}"${selectedVal==n?' selected':''}>Échéance ${n}/4</option>`).join('')}
+    </select>
+  </div>`;
+}
+function toggleEcheance4X(sel, uid) {
+  const grp = document.getElementById('echeance-grp-' + uid);
+  if (grp) grp.style.display = sel.value === 'Paypal en 4X' ? '' : 'none';
+}
+
+function showAddMensu() {
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Nouvelle mensualisation</div>
+  <div class="modal-form" id="mensu-form">
+    ${libSelects()}
+    <div class="row2">
+      <div class="form-group">
+        <label>Type</label>
+        <select name="type_operation">
+          ${getMoyensPaiement().map(t=>`<option>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Opération</label>
+        <select name="operation">
+          <option>Débit</option><option>Crédit</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Jour du mois</label>
+      <input type="number" name="jour" min="1" max="31" placeholder="Ex: 5">
+    </div>
+    <div class="form-group"><label>Montants par mois (laisser vide si absent)</label>${monthsFields()}</div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveMensu(null)">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+function showEditMensu(id) {
+  const m = state.mensualisations.find(x => x.id === id);
+  if (!m) return;
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Modifier la mensualisation</div>
+  <div class="modal-form" id="mensu-form">
+    ${libSelects(m)}
+    <div class="row2">
+      <div class="form-group">
+        <label>Type</label>
+        <select name="type_operation">
+          ${getMoyensPaiement().map(t=>`<option${m.type_operation===t?' selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Opération</label>
+        <select name="operation">
+          <option${m.operation==='Débit'?' selected':''}>Débit</option>
+          <option${m.operation==='Crédit'?' selected':''}>Crédit</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Jour du mois</label>
+      <input type="number" name="jour" min="1" max="31" value="${m.jour}">
+    </div>
+    <div class="form-group"><label>Montants par mois</label>${monthsFields(m)}</div>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="deleteMensu('${id}')">Supprimer</button>
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveMensu('${id}')">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+async function saveMensu(id) {
+  const form = document.getElementById('mensu-form');
+  const data = {};
+  form.querySelectorAll('[name]').forEach(el => {
+    const v = el.value.trim();
+    if (MOIS_KEYS.includes(el.name)) { data[el.name] = v === '' ? null : parseFloat(v); }
+    else { data[el.name] = v || null; }
+  });
+  data.jour = parseInt(data.jour) || 1;
+  if (!data.libelle_principal) { showToast('Libellé principal requis', 'error'); return; }
+
+  setSyncing(true);
+  let err;
+  if (id) {
+    data.updated_at = new Date().toISOString();
+    ({ error: err } = await sb.from('mensualisations').update(data).eq('id', id));
+  } else {
+    ({ error: err } = await sb.from('mensualisations').insert(data));
+  }
+  setSyncing(false);
+  if (err) { showToast('Erreur : ' + err.message, 'error'); return; }
+  showToast(id ? 'Mensualisation mise à jour' : 'Mensualisation ajoutée', 'success');
+  closeModal();
+  await loadData();
+}
+
+async function deleteMensu(id) {
+  if (!confirm('Supprimer cette mensualisation ?')) return;
+  closeModal();
+  setSyncing(true);
+  await sb.from('mensualisations').delete().eq('id', id);
+  setSyncing(false);
+  showToast('Supprimée', 'success');
+  await loadData();
+}
+
+// ═══════════════════════════════════════════════════════
+// MODALS — JOURNAL / TRANSACTIONS
+// ═══════════════════════════════════════════════════════
+function transactionForm(data = {}) {
+  const today = data.date_transaction || new Date().toISOString().slice(0,10);
+  return `
+  <div class="form-group">
+    <label>Date</label>
+    <input type="date" name="date_transaction" value="${today}">
+  </div>
+  ${libSelects(data)}
+  <div class="row2">
+    <div class="form-group">
+      <label>Opération</label>
+      <select name="operation">
+        <option${data.operation==='Débit'||!data.operation?' selected':''}>Débit</option>
+        <option${data.operation==='Crédit'?' selected':''}>Crédit</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Montant (€)</label>
+      <input type="number" step="0.01" name="montant" value="${data.montant||''}" placeholder="0,00">
+    </div>
+  </div>
+  <div class="form-group">
+    <label>Type</label>
+    <select name="type_operation">
+      ${getMoyensPaiement().map(t=>`<option${data.type_operation===t?' selected':''}>${t}</option>`).join('')}
+    </select>
+  </div>
+  <div class="form-group">
+    <label>Note (optionnel)</label>
+    <input type="text" name="notes" value="${data.notes||''}" placeholder="Note libre…">
+  </div>`;
+}
+
+function showAddTransaction() {
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Nouvelle transaction</div>
+  <div class="modal-form" id="tr-form">
+    ${transactionForm()}
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveTransaction(null)">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+function showEditTransaction(id) {
+  const t = state.transactions.find(x => x.id === id);
+  if (!t) return;
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Modifier la transaction</div>
+  <div class="modal-form" id="tr-form">
+    ${transactionForm(t)}
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="deleteTransaction('${id}')">Supprimer</button>
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-save" onclick="saveTransaction('${id}')">Enregistrer</button>
+    </div>
+  </div>`);
+}
+
+async function saveTransaction(id) {
+  const form = document.getElementById('tr-form');
+  const data = {};
+  form.querySelectorAll('[name]').forEach(el => { data[el.name] = el.value.trim() || null; });
+  data.montant = parseFloat(data.montant);
+  if (!data.date_transaction) { showToast('Date requise', 'error'); return; }
+  if (isNaN(data.montant) || data.montant <= 0) { showToast('Montant invalide', 'error'); return; }
+
+  setSyncing(true);
+  let err;
+  if (id) {
+    ({ error: err } = await sb.from('transactions').update(data).eq('id', id));
+  } else {
+    ({ error: err } = await sb.from('transactions').insert(data));
+  }
+  setSyncing(false);
+  if (err) { showToast('Erreur : ' + err.message, 'error'); return; }
+  showToast(id ? 'Transaction mise à jour' : 'Transaction ajoutée', 'success');
+  closeModal();
+  await loadData();
+}
+
+async function deleteTransaction(id) {
+  if (!confirm('Supprimer cette transaction ?')) return;
+  closeModal();
+  await sb.from('transactions').delete().eq('id', id);
+  showToast('Supprimée', 'success');
+  await loadData();
+}
+
+// ═══════════════════════════════════════════════════════
+// PARAMÈTRES — LIBELLÉS
+// ═══════════════════════════════════════════════════════
+async function addLibellePrincipal() {
+  const inp = document.getElementById('new-principal');
+  const nom = (inp.value || '').trim();
+  if (!nom) return;
+  const ordre = state.libelles.length;
+  const { error } = await sb.from('libelles').insert({ principal: nom, secondaires: [], ordre });
+  if (error) { showToast('Erreur', 'error'); return; }
+  inp.value = '';
+  showToast('Libellé ajouté', 'success');
+  await loadData();
+}
+
+async function deleteLibelle(id) {
+  if (!confirm('Supprimer ce libellé ?')) return;
+  await sb.from('libelles').delete().eq('id', id);
+  showToast('Libellé supprimé');
+  await loadData();
+}
+
+async function disconnectSb() {
+  if (!confirm('Se déconnecter de Supabase ?')) return;
+  localStorage.removeItem('sb_url');
+  localStorage.removeItem('sb_key');
+  state.connected = false; state.sbUrl = ''; state.sbKey = '';
+  sb = null;
+  showSetup();
+}
+
+function getMoyensPaiement() {
+  try { return JSON.parse(state.parametres['moyens_paiement'] || '[]'); } catch { return []; }
+}
+function getNextCheque(type) {
+  const isRobert = type.includes('Robert');
+  const key = isRobert ? 'chequier_robert' : 'chequier_carmela';
+  return state.parametres[key] || '';
+}
+async function setParam(cle, valeur) {
+  await sb.from('parametres').upsert({ cle, valeur }, { onConflict: 'cle' });
+  await loadData();
+}
+
+// ═══════════════════════════════════════════════════════
+// EXPORT / IMPORT
+// ═══════════════════════════════════════════════════════
+function exportData() {
+  const payload = JSON.stringify({
+    version: '1.0',
+    exported: new Date().toISOString(),
+    mensualisations: state.mensualisations,
+    transactions: state.transactions,
+    libelles: state.libelles,
+  }, null, 2);
+  const a = document.createElement('a');
+  a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(payload);
+  a.download = `gestion2026_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  showToast('Export téléchargé', 'success');
+}
+
+async function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  try {
+    const data = JSON.parse(text);
+    if (!data.mensualisations) throw new Error('Format invalide');
+    if (!confirm(`Importer ${data.mensualisations.length} mensualisations et ${data.transactions?.length||0} transactions ?`)) return;
+    setSyncing(true);
+    if (data.mensualisations?.length) {
+      await sb.from('mensualisations').upsert(data.mensualisations);
+    }
+    if (data.transactions?.length) {
+      await sb.from('transactions').upsert(data.transactions);
+    }
+    if (data.libelles?.length) {
+      await sb.from('libelles').upsert(data.libelles);
+    }
+    setSyncing(false);
+    showToast('Import réussi', 'success');
+    await loadData();
+  } catch (err) {
+    setSyncing(false);
+    showToast('Erreur d\'import : ' + err.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// NAVIGATION MOIS
+// ═══════════════════════════════════════════════════════
+function prevMonth() {
+  state.mois--;
+  if (state.mois < 0) { state.mois = 11; state.annee--; }
+  render();
+}
+function nextMonth() {
+  state.mois++;
+  if (state.mois > 11) { state.mois = 0; state.annee++; }
+  render();
+}
+function updateMonthLabel() {
+  const el = document.getElementById('month-label');
+  if (el) el.textContent = MOIS_FR[state.mois] + ' ' + state.annee;
+}
+
+// ═══════════════════════════════════════════════════════
+// MODAL HELPERS
+// ═══════════════════════════════════════════════════════
+function openModal(html) {
+  document.getElementById('modal-content').innerHTML = html;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════
+let _toastTimer;
+function showToast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type;
+  el.classList.remove('hidden');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.add('hidden'), 2800);
+}
+
+// ═══════════════════════════════════════════════════════
+// SYNC DOT
+// ═══════════════════════════════════════════════════════
+function setSyncing(v) {
+  state.syncing = v;
+  updateSyncDot();
+}
+function updateSyncDot() {
+  const dot = document.getElementById('sync-dot');
+  if (!dot) return;
+  dot.className = 'sync-dot' + (state.syncing ? ' syncing' : !state.connected ? ' offline' : '');
+  dot.title = state.syncing ? 'Synchronisation…' : state.connected ? 'Connecté' : 'Hors ligne';
+}
+
+// ═══════════════════════════════════════════════════════
+// UTILITAIRES
+// ═══════════════════════════════════════════════════════
+function fmt(v) {
+  if (v == null || v === '') return '—';
+  return parseFloat(v).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+function fmtDate(d) {
+  if (!d) return '';
+  const dt = new Date(d + 'T12:00:00');
+  return dt.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+}
+function isSameMois(dateStr) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.getMonth() === state.mois && d.getFullYear() === state.annee;
+}
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+async function init() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  // Auto-connexion via paramètres URL (ex: ?url=...&key=...)
+  const params = new URLSearchParams(window.location.search);
+  const pUrl = (params.get('url') || '').trim().replace(/\/+$/, '');
+  const pKey = (params.get('key') || '').trim().replace(/\s+/g, '');
+  if (pUrl && pKey) {
+    const ok = await initSupabase(pUrl, pKey);
+    if (ok) {
+      showApp();
+      await loadData();
+      subscribeRealtime();
+      return;
+    }
+  }
+
+  if (state.sbUrl && state.sbKey) {
+    const ok = await initSupabase(state.sbUrl, state.sbKey);
+    if (ok) {
+      showApp();
+      await loadData();
+      subscribeRealtime();
+      return;
+    }
+  }
+  showSetup();
+}
+
+document.addEventListener('DOMContentLoaded', init);

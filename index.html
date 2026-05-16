@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1F3864">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Gestion 2026">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <title>Gestion 2026</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Écran de configuration ─────────────────────── -->
+  <div id="screen-setup">
+    <div class="setup-card">
+      <div class="setup-logo">
+        <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <text x="22" y="32" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="26">€</text>
+        </svg>
+      </div>
+      <h1>Gestion 2026</h1>
+      <p>Connectez votre base Supabase pour commencer à synchroniser sur tous vos appareils.</p>
+
+      <div class="setup-steps">
+        <h3>⚡ Configuration rapide (5 min)</h3>
+        <ol>
+          <li>Créez un compte gratuit sur <a href="https://supabase.com" target="_blank">supabase.com</a></li>
+          <li>Créez un nouveau projet (choisissez EU West)</li>
+          <li>Allez dans <strong>SQL Editor</strong> et exécutez le fichier <code>setup.sql</code></li>
+          <li>Dans <strong>Project Settings → API</strong>, copiez l'URL et la clé <em>anon public</em></li>
+          <li>Collez-les ci-dessous</li>
+        </ol>
+      </div>
+
+      <div class="form-group">
+        <label>URL du projet Supabase</label>
+        <input type="url" id="sb-url" placeholder="https://xxxxxxxxxxxx.supabase.co" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="url">
+      </div>
+      <div class="form-group">
+        <label>Clé anonyme (anon public key)</label>
+        <input type="text" id="sb-key" placeholder="eyJhbGciOiJIUzI1NiIs…" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+      </div>
+      <button class="btn-primary" onclick="setupSupabase()">Se connecter →</button>
+    </div>
+  </div>
+
+  <!-- ── Application principale ────────────────────── -->
+  <div id="screen-app" class="hidden">
+
+    <header id="app-header">
+      <span id="page-title">Accueil</span>
+      <div class="month-nav">
+        <button onclick="prevMonth()" aria-label="Mois précédent">‹</button>
+        <span id="month-label">Mai 2026</span>
+        <button onclick="nextMonth()" aria-label="Mois suivant">›</button>
+      </div>
+      <div id="sync-dot" class="sync-dot" title="Connecté"></div>
+    </header>
+
+    <main id="main-content"></main>
+
+    <nav id="bottom-nav">
+      <button class="nav-item active" data-view="dashboard" onclick="navigate('dashboard')">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-label">Accueil</span>
+      </button>
+      <button class="nav-item" data-view="mensualisation" onclick="navigate('mensualisation')">
+        <span class="nav-icon">📋</span>
+        <span class="nav-label">Mensuel</span>
+      </button>
+      <button class="nav-item" data-view="suivi" onclick="navigate('suivi')">
+        <span class="nav-icon">📒</span>
+        <span class="nav-label">Suivi<br>journalier</span>
+      </button>
+      <button class="nav-item" data-view="parametres" onclick="navigate('parametres')">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Paramètres</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ── Overlay modal ─────────────────────────────── -->
+  <div id="modal-overlay" class="hidden" onclick="closeModal()">
+    <div id="modal-container" onclick="event.stopPropagation()">
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <!-- ── Toast ─────────────────────────────────────── -->
+  <div id="toast" class="hidden"></div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

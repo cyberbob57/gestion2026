@@ -1,0 +1,14 @@
+{
+  "name": "Gestion 2026",
+  "short_name": "Gestion",
+  "description": "Gestion de compte personnelle",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1F3864",
+  "theme_color": "#1F3864",
+  "orientation": "portrait-primary",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

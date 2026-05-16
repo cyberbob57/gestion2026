@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="40" fill="#1F3864"/>
+  <text x="96" y="72" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="44">2026</text>
+  <text x="96" y="128" text-anchor="middle" fill="white" font-family="Arial" font-weight="bold" font-size="30">GESTION</text>
+  <rect x="30" y="140" width="132" height="3" rx="2" fill="#B8860B"/>
+</svg>
