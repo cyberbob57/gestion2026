@@ -133,7 +133,7 @@ function showSetup() {
 function navigate(view) {
   state.view = view;
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  const titles = { dashboard:'Accueil', mensualisation:'Mensualisation', suivi:'Suivi journalier', parametres:'Paramètres' };
+  const titles = { dashboard:'Accueil', mensualisation:'Mensualisation', suivi:'Suivi journalier', parametres:'Paramètres', stats:'Statistiques' };
   document.getElementById('page-title').textContent = titles[view];
   render();
 }
@@ -145,6 +145,7 @@ function render() {
     case 'mensualisation': main.innerHTML = renderMensualisation(); break;
     case 'suivi':          main.innerHTML = renderSuivi(); bindSuivi(); break;
     case 'parametres':     main.innerHTML = renderParametres(); bindParametres(); break;
+    case 'stats':          main.innerHTML = renderStats(); break;
   }
   updateMonthLabel();
   updateSyncDot();
@@ -1422,6 +1423,143 @@ async function init() {
     }
   }
   showSetup();
+}
+
+// ═══════════════════════════════════════════════════════
+// STATISTIQUES
+// ═══════════════════════════════════════════════════════
+function renderStats() {
+  const statsView = window._statsView || 'mensuel';
+  const tabs = `
+  <div class="mensu-tabs">
+    <button class="mensu-tab${statsView==='mensuel'?' active':''}" onclick="window._statsView='mensuel'; render()">📊 Mensuel</button>
+    <button class="mensu-tab${statsView==='annuel'?' active':''}" onclick="window._statsView='annuel'; render()">📆 Annuel</button>
+  </div>`;
+  return tabs + (statsView === 'annuel' ? renderStatsAnnuel() : renderStatsMensuel());
+}
+
+function getStatsData(entries) {
+  const totalDebit  = entries.reduce((s,e) => s + parseFloat(e.debit  || 0), 0);
+  const totalCredit = entries.reduce((s,e) => s + parseFloat(e.credit || 0), 0);
+  const byPrincipalD = {}, byPrincipalC = {};
+  entries.forEach(e => {
+    const p = e.libelle_principal || 'Non classé';
+    const s = [e.libelle_secondaire, e.libelle_libre].filter(Boolean).join(' · ') || '—';
+    if (parseFloat(e.debit||0) > 0) {
+      if (!byPrincipalD[p]) byPrincipalD[p] = { total:0, secs:{} };
+      byPrincipalD[p].total += parseFloat(e.debit);
+      byPrincipalD[p].secs[s] = (byPrincipalD[p].secs[s]||0) + parseFloat(e.debit);
+    }
+    if (parseFloat(e.credit||0) > 0) {
+      if (!byPrincipalC[p]) byPrincipalC[p] = { total:0, secs:{} };
+      byPrincipalC[p].total += parseFloat(e.credit);
+      byPrincipalC[p].secs[s] = (byPrincipalC[p].secs[s]||0) + parseFloat(e.credit);
+    }
+  });
+  const sortD = Object.entries(byPrincipalD).sort((a,b)=>b[1].total-a[1].total);
+  const sortC = Object.entries(byPrincipalC).sort((a,b)=>b[1].total-a[1].total);
+  return { totalDebit, totalCredit, sortD, sortC };
+}
+
+function statsCatBlock(principal, data, totalRef, type) {
+  const pct = totalRef > 0 ? data.total/totalRef*100 : 0;
+  const icon = CAT_ICONS[principal] || (type==='credit'?'💰':'💳');
+  const sortedSecs = Object.entries(data.secs).sort((a,b)=>b[1]-a[1]);
+  return `
+  <div class="stats-cat-block">
+    <div class="stats-cat-header">
+      <div class="stats-cat-icon">${icon}</div>
+      <div class="stats-cat-info">
+        <div class="stats-cat-name">${escHtml(principal)}</div>
+        <div class="stats-bar-wrap"><div class="stats-bar ${type}" style="width:${Math.min(pct,100).toFixed(1)}%"></div></div>
+        <div class="stats-pct">${pct.toFixed(1)}% du total</div>
+      </div>
+      <div class="stats-cat-total ${type}">${fmt(data.total)}</div>
+    </div>
+    <div class="stats-secs">
+      ${sortedSecs.map(([sec,amt])=>{
+        const sp = data.total>0?amt/data.total*100:0;
+        return `<div class="stats-sec-row">
+          <div class="stats-sec-dot ${type}"></div>
+          <div class="stats-sec-name">${escHtml(sec)}</div>
+          <div class="stats-sec-bar-wrap"><div class="stats-sec-bar ${type}" style="width:${Math.min(sp,100).toFixed(1)}%"></div></div>
+          <div class="stats-sec-amt">${fmt(amt)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function statsContent(totalDebit, totalCredit, sortD, sortC, period) {
+  const solde = totalCredit - totalDebit;
+  const expHtml = sortD.length === 0
+    ? `<div class="stats-empty">Aucune dépense enregistrée pour ${period}</div>`
+    : sortD.map(([p,d])=>statsCatBlock(p,d,totalDebit,'debit')).join('');
+  const incHtml = sortC.length === 0
+    ? `<div class="stats-empty">Aucune entrée enregistrée pour ${period}</div>`
+    : sortC.map(([p,d])=>statsCatBlock(p,d,totalCredit,'credit')).join('');
+  return `
+  <div class="stats-wrap">
+    <div class="stats-summary">
+      <div class="stats-sum-item">
+        <div class="stats-sum-icon debit">📉</div>
+        <div class="stats-sum-label">Dépenses</div>
+        <div class="stats-sum-value debit">${fmt(totalDebit)}</div>
+      </div>
+      <div class="stats-sum-item">
+        <div class="stats-sum-icon credit">📈</div>
+        <div class="stats-sum-label">Entrées</div>
+        <div class="stats-sum-value credit">${fmt(totalCredit)}</div>
+      </div>
+      <div class="stats-sum-item">
+        <div class="stats-sum-icon ${solde>=0?'credit':'debit'}">⚖️</div>
+        <div class="stats-sum-label">Solde</div>
+        <div class="stats-sum-value ${solde>=0?'credit':'debit'}">${fmt(solde)}</div>
+      </div>
+    </div>
+    <div class="stats-section-title">📉 Postes de dépenses <span class="stats-period">${period}</span></div>
+    <div class="stats-cats">${expHtml}</div>
+    <div class="stats-section-title">📈 Récap des entrées <span class="stats-period">${period}</span></div>
+    <div class="stats-cats">${incHtml}</div>
+  </div>`;
+}
+
+function renderStatsMensuel() {
+  const entries = state.suivi.filter(e => e.mois===state.mois+1 && e.annee===state.annee);
+  const {totalDebit,totalCredit,sortD,sortC} = getStatsData(entries);
+  return statsContent(totalDebit, totalCredit, sortD, sortC, `${MOIS_FR[state.mois]} ${state.annee}`);
+}
+
+function renderStatsAnnuel() {
+  const entries = state.suivi.filter(e => e.annee===state.annee);
+  const {totalDebit,totalCredit,sortD,sortC} = getStatsData(entries);
+  // Tableau mensuel par catégorie principale
+  const byMois = Array.from({length:12},(_,i)=>{
+    const m = state.suivi.filter(e=>e.annee===state.annee && e.mois===i+1);
+    const d = m.reduce((s,e)=>s+parseFloat(e.debit||0),0);
+    const c = m.reduce((s,e)=>s+parseFloat(e.credit||0),0);
+    return {d,c};
+  });
+  const maxVal = Math.max(...byMois.map(m=>Math.max(m.d,m.c)),1);
+  const moisChart = `
+  <div class="stats-section-title">📆 Évolution mensuelle <span class="stats-period">${state.annee}</span></div>
+  <div class="stats-chart-wrap card">
+    <div class="stats-chart">
+      ${byMois.map((m,i)=>`
+      <div class="stats-chart-col">
+        <div class="stats-chart-bars">
+          <div class="stats-chart-bar credit" style="height:${(m.c/maxVal*100).toFixed(1)}%" title="${MOIS_COURT[i]}: +${fmt(m.c)}"></div>
+          <div class="stats-chart-bar debit"  style="height:${(m.d/maxVal*100).toFixed(1)}%" title="${MOIS_COURT[i]}: -${fmt(m.d)}"></div>
+        </div>
+        <div class="stats-chart-label">${MOIS_COURT[i]}</div>
+      </div>`).join('')}
+    </div>
+    <div class="stats-chart-legend">
+      <span class="legend-dot credit"></span>Entrées
+      <span class="legend-dot debit" style="margin-left:12px"></span>Dépenses
+    </div>
+  </div>`;
+  return moisChart + statsContent(totalDebit, totalCredit, sortD, sortC, `Année ${state.annee}`);
 }
 
 document.addEventListener('DOMContentLoaded', init);

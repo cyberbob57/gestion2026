@@ -821,3 +821,86 @@ a { color: var(--primary-mid); }
   .nav-icon { font-size: 20px; }
   .nav-label { font-size: 14px; font-weight: 600; }
 }
+
+/* ── Statistiques ──────────────────────────────────────── */
+.stats-wrap { padding: 4px 16px 24px; }
+.stats-summary {
+  display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
+  margin-bottom: 8px;
+}
+.stats-sum-item {
+  background: white; border-radius: 14px;
+  padding: 14px 10px; text-align: center;
+  box-shadow: var(--shadow);
+}
+.stats-sum-icon { font-size: 22px; margin-bottom: 4px; }
+.stats-sum-label { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; }
+.stats-sum-value { font-size: 14px; font-weight: 800; margin-top: 4px; letter-spacing: -.3px; }
+.stats-sum-value.debit  { color: var(--debit); }
+.stats-sum-value.credit { color: var(--credit); }
+
+.stats-section-title {
+  font-size: 13px; font-weight: 800; color: var(--text);
+  text-transform: uppercase; letter-spacing: .5px;
+  margin: 18px 0 10px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.stats-period { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+.stats-cats { display: flex; flex-direction: column; gap: 8px; }
+.stats-cat-block {
+  background: white; border-radius: 14px;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.stats-cat-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px 10px;
+}
+.stats-cat-icon {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: var(--primary-light); display: flex;
+  align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+}
+.stats-cat-info { flex: 1; min-width: 0; }
+.stats-cat-name { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats-bar-wrap {
+  height: 6px; background: var(--border); border-radius: 3px;
+  margin: 6px 0 3px; overflow: hidden;
+}
+.stats-bar { height: 100%; border-radius: 3px; transition: width .4s ease; }
+.stats-bar.debit  { background: linear-gradient(90deg, #EF4444 0%, #F87171 100%); }
+.stats-bar.credit { background: linear-gradient(90deg, #10B981 0%, #34D399 100%); }
+.stats-pct { font-size: 10px; color: var(--text-muted); font-weight: 600; }
+.stats-cat-total { font-size: 16px; font-weight: 800; letter-spacing: -.5px; flex-shrink: 0; }
+.stats-cat-total.debit  { color: var(--debit); }
+.stats-cat-total.credit { color: var(--credit); }
+
+.stats-secs { padding: 0 14px 12px 68px; display: flex; flex-direction: column; gap: 6px; }
+.stats-sec-row { display: flex; align-items: center; gap: 8px; }
+.stats-sec-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.stats-sec-dot.debit  { background: var(--debit); }
+.stats-sec-dot.credit { background: var(--credit); }
+.stats-sec-name { font-size: 12px; color: var(--text-muted); min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 120px; }
+.stats-sec-bar-wrap { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.stats-sec-bar { height: 100%; border-radius: 2px; }
+.stats-sec-bar.debit  { background: #FCA5A5; }
+.stats-sec-bar.credit { background: #6EE7B7; }
+.stats-sec-amt { font-size: 12px; font-weight: 700; flex-shrink: 0; color: var(--text); width: 72px; text-align: right; }
+.stats-empty { color: var(--text-muted); font-size: 13px; font-style: italic; padding: 16px 0; text-align: center; }
+
+/* Chart annuel */
+.stats-chart-wrap { margin: 0 0 4px; padding: 16px 14px 12px; }
+.stats-chart { display: flex; align-items: flex-end; gap: 4px; height: 120px; }
+.stats-chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+.stats-chart-bars { display: flex; align-items: flex-end; gap: 2px; width: 100%; height: 100%; justify-content: center; }
+.stats-chart-bar {
+  width: 44%; border-radius: 4px 4px 0 0;
+  min-height: 2px; transition: height .3s ease;
+}
+.stats-chart-bar.debit  { background: linear-gradient(180deg, #F87171 0%, #EF4444 100%); }
+.stats-chart-bar.credit { background: linear-gradient(180deg, #34D399 0%, #10B981 100%); }
+.stats-chart-label { font-size: 9px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+.stats-chart-legend { display: flex; align-items: center; font-size: 12px; color: var(--text-muted); margin-top: 10px; justify-content: center; gap: 4px; }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.legend-dot.debit  { background: var(--debit); }
+.legend-dot.credit { background: var(--credit); }
