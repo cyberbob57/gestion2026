@@ -32,6 +32,7 @@ function entryIcon(o) {
   if (txt.includes('yaris') || txt.includes('toyota')) return carSVG('#2563EB', 'Toyota Yaris'); // bleu
   if (txt.includes('mercedes'))                        return carSVG('#DC2626', 'Mercedes');     // rouge
   if (/\beau\b/.test(txt) || txt.includes('sebvf'))    return '🏠🚰';                            // eau : maison + robinet
+  if (/\b(electricit|électricit|uem|edf)\w*/.test(txt)) return '🏠💡';                           // électricité : maison + ampoule
   return CAT_ICONS[o && o.libelle_principal] || '💳';
 }
 
