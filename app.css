@@ -144,6 +144,7 @@ a { color: var(--primary-mid); }
 
 /* ── Header ────────────────────────────────────────────── */
 #app-header {
+  position: relative;
   height: var(--header-h);
   background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 60%, var(--primary-mid) 100%);
   display: flex;
@@ -154,8 +155,16 @@ a { color: var(--primary-mid); }
   z-index: 10;
   box-shadow: 0 2px 20px rgba(30,64,175,.35);
 }
-#page-title { color: white; font-size: 18px; font-weight: 800; letter-spacing: -.3px; }
+#page-title {
+  color: white; font-size: 18px; font-weight: 800; letter-spacing: -.3px;
+  max-width: calc(50% - 130px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .month-nav {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   gap: 6px;
