@@ -25,6 +25,15 @@ function catColor(name) {
   return `hsl(${h}, 60%, 50%)`;
 }
 
+// Pictogramme précis : différencie notamment les véhicules par leur libellé
+function entryIcon(o) {
+  const txt = [o && o.libelle_secondaire, o && o.libelle_libre, o && o.libelle_principal]
+    .filter(Boolean).join(' ').toLowerCase();
+  if (txt.includes('yaris'))    return '🚗'; // Toyota Yaris
+  if (txt.includes('mercedes')) return '🚙'; // Mercedes
+  return CAT_ICONS[o && o.libelle_principal] || '💳';
+}
+
 // ═══════════════════════════════════════════════════════
 // ÉTAT GLOBAL
 // ═══════════════════════════════════════════════════════
@@ -565,7 +574,7 @@ function renderJournal() {
       <div class="journal-day-label">${fmtDate(d)}</div>
       ${byDate[d].map(t => `
       <div class="journal-item" onclick="showEditTransaction('${t.id}')">
-        <div class="journal-cat-icon">${CAT_ICONS[t.libelle_principal] || '💳'}</div>
+        <div class="journal-cat-icon">${entryIcon(t)}</div>
         <div class="journal-info">
           <div class="name">${t.libelle_secondaire || t.libelle_principal || 'Sans catégorie'}</div>
           <div class="sub">${t.libelle_principal || ''} · ${t.notes || ''}</div>
@@ -743,7 +752,7 @@ function renderSuivi() {
           </td>
           <td class="col-libelle">
             <div class="lib-header">
-              <span class="lib-cat-icon">${CAT_ICONS[e.libelle_principal] || '💳'}</span>
+              <span class="lib-cat-icon">${entryIcon(e)}</span>
               <div class="lib-principal">${escHtml(e.libelle_principal || '')}</div>
             </div>
             ${e.libelle_secondaire ? `<div class="lib-secondaire">${escHtml(e.libelle_secondaire)}</div>` : ''}
