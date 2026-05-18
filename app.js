@@ -189,6 +189,8 @@ function entryIcon(o) {
   if (/\b(free\s*mobile|mobile|forfait|sfr|orange|bouygues)\b/.test(txt)) return '🏠📱';          // mobile : maison + téléphone
   if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💼💵';   // revenu : billet de banque
   if (/\b(impot|impôt|impots|impôts|taxe|taxes|fonciere|foncière)\b/.test(txt)) return '📋🤲';   // impôts : main tendue
+  if (/versement/.test(txt))                            return '🫗';                              // versement : cruche qu'on déverse
+  if (/retrait/.test(txt))                              return '🏧';                              // retrait : distributeur de banque
   if (/pr[ée]l[èe]vement/.test(txt))                    return '💉';                              // prélèvement : seringue
   if (/ch[èe]que/.test(txt)) {
     if (txt.includes('carmela') || txt.includes('carméla')) return '📗';                          // chèque Carméla : chéquier vert
