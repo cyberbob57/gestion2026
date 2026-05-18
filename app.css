@@ -1711,3 +1711,8 @@ a { color: var(--primary-mid); }
 .mp-ico { display: inline-flex; align-items: center; justify-content: center; width: 34px; flex-shrink: 0; font-size: 18px; }
 .mp-ico .card-svg, .mp-ico .veh-svg { width: 32px; height: 22px; }
 .mp-nom { flex: 1; }
+
+/* Pictogramme paiement en ligne */
+.pp-svg { vertical-align: middle; display: inline-block; border-radius: 5px; }
+.mp-ico .pp-svg { width: 30px; height: 22px; }
+.journal-cat-icon .pp-svg { width: 32px; height: 24px; }
