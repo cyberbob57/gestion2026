@@ -190,11 +190,14 @@ function entryIcon(o) {
   if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💼💵';   // revenu : billet de banque
   if (/\b(impot|impôt|impots|impôts|taxe|taxes|fonciere|foncière)\b/.test(txt)) return '📋🤲';   // impôts : main tendue
   if (/\b(visa|mastercard|carte bancaire|carte visa|cb robert|cb carmela)\b/.test(txt) || /\bcarte\b/.test(txt)) {
-    let c1 = '#1E3A8A', c2 = '#2563EB';                          // défaut : bleu
-    if (txt.includes('platin'))  { c1 = '#475569'; c2 = '#94A3B8'; } // platinium : argent
-    if (txt.includes('gold') || txt.includes('premier')) { c1 = '#B45309'; c2 = '#F59E0B'; } // gold
-    if (txt.includes('robert'))  { c1 = '#1E3A8A'; c2 = '#3B82F6'; } // Robert : bleu
-    if (txt.includes('carmela') || txt.includes('carméla')) { c1 = '#7E22CE'; c2 = '#C026D3'; } // Carméla : violet
+    let c1 = '#1E3A8A', c2 = '#2563EB';                              // défaut : bleu
+    if (txt.includes('platin')) {                                    // Platinium : argentée
+      c1 = '#64748B'; c2 = '#CBD5E1';
+    } else if (txt.includes('premier') && txt.includes('boursorama')) { // Premier Boursorama : noire
+      c1 = '#0B0B0F'; c2 = '#3A3A42';
+    } else if (txt.includes('premier') || txt.includes('gold')) {    // Premier (Carméla…) : dorée
+      c1 = '#B45309'; c2 = '#F4D03F';
+    }
     return cardSVG(c1, c2);
   }
   return CAT_ICONS[o && o.libelle_principal] || '💳';
