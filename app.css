@@ -591,6 +591,7 @@ a { color: var(--primary-mid); }
   font-size: 10px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .5px;
   padding: 11px 8px; text-align: center; white-space: nowrap;
+  position: sticky; top: 0; z-index: 3;
 }
 .suivi-table thead th:first-child { border-radius: var(--radius) 0 0 0; }
 .suivi-table thead th:last-child  { border-radius: 0 var(--radius) 0 0; }
@@ -1496,4 +1497,85 @@ a { color: var(--primary-mid); }
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* ── Skeleton de chargement ────────────────────────────── */
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.skeleton-wrap { padding: 16px; }
+.skl-hero {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary-mid));
+  border-radius: var(--radius); padding: 22px; margin-bottom: 14px;
+}
+.skl-card {
+  background: var(--card); border-radius: var(--radius);
+  padding: 18px; margin-bottom: 12px; box-shadow: var(--shadow);
+}
+.skl-line, .skl-big {
+  height: 14px; border-radius: 7px; margin: 8px 0;
+  background: #E8EDF5;
+  background-image: linear-gradient(90deg, #E8EDF5 0px, #F4F7FB 200px, #E8EDF5 400px);
+  background-size: 800px 100%;
+  animation: shimmer 1.3s infinite linear;
+}
+.skl-big { height: 34px; width: 55%; }
+.skl-line.w40 { width: 40%; } .skl-line.w50 { width: 50%; }
+.skl-line.w60 { width: 60%; } .skl-line.w70 { width: 70%; }
+.skl-line.w90 { width: 90%; }
+.skl-line.light, .skl-big.light {
+  background: rgba(255,255,255,.22);
+  background-image: linear-gradient(90deg, rgba(255,255,255,.18) 0px, rgba(255,255,255,.4) 200px, rgba(255,255,255,.18) 400px);
+}
+
+/* ── Célébration comptes équilibrés ────────────────────── */
+@keyframes equiPulse {
+  0%,100% { box-shadow: 0 4px 20px rgba(16,185,129,.4); }
+  50%     { box-shadow: 0 6px 34px rgba(16,185,129,.75); }
+}
+.rapprochement-card.equilibre {
+  animation: equiPulse 2.4s ease-in-out infinite;
+  position: relative;
+}
+.rapprochement-card.equilibre::after {
+  content: "✨";
+  position: absolute; top: 12px; right: 14px;
+  font-size: 20px;
+  animation: equiPulse 2.4s ease-in-out infinite;
+}
+
+/* ── Bouton flottant (FAB) ─────────────────────────────── */
+#fab-add {
+  position: fixed;
+  right: 20px;
+  bottom: calc(var(--nav-h) + 18px);
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary-mid));
+  color: #fff;
+  font-size: 30px; font-weight: 300;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 20px rgba(30,64,175,.5);
+  z-index: 90;
+  transition: transform .15s, box-shadow .2s;
+}
+#fab-add:active { transform: scale(.9); }
+#fab-add.hidden { display: none; }
+@media (min-width: 640px) { #fab-add { right: 32px; } }
+
+/* ── Donut & sparklines Stats ──────────────────────────── */
+.stats-donut-wrap { height: 280px; padding: 16px; }
+.stats-donut-wrap canvas { max-height: 248px; }
+.stats-cat-right {
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: 4px; flex-shrink: 0;
+}
+.sparkline { width: 70px; height: 22px; display: block; opacity: .9; }
+
+/* ── Carte de chargement dark mode ─────────────────────── */
+@media (prefers-color-scheme: dark) {
+  .skl-card { background: var(--card); }
+  .skl-line, .skl-big {
+    background: #1E293B;
+    background-image: linear-gradient(90deg, #1E293B 0px, #283549 200px, #1E293B 400px);
+  }
 }

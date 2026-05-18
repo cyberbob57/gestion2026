@@ -171,9 +171,19 @@ async function setupSupabase() {
   }
 }
 
+function renderSkeleton() {
+  const card = '<div class="skl-card"><div class="skl-line w60"></div><div class="skl-line w90"></div><div class="skl-line w40"></div></div>';
+  return `<div class="skeleton-wrap">
+    <div class="skl-hero"><div class="skl-line w50 light"></div><div class="skl-big light"></div><div class="skl-line w70 light"></div></div>
+    ${card}${card}${card}
+  </div>`;
+}
+
 function showApp() {
   document.getElementById('screen-setup').classList.add('hidden');
   document.getElementById('screen-app').classList.remove('hidden');
+  const m = document.getElementById('main-content');
+  if (m && !m.innerHTML.trim()) m.innerHTML = renderSkeleton();
 }
 function showSetup() {
   document.getElementById('screen-app').classList.add('hidden');
@@ -201,10 +211,11 @@ function render() {
     case 'mensualisation': main.innerHTML = renderMensualisation(); break;
     case 'suivi':          main.innerHTML = renderSuivi(); bindSuivi(); break;
     case 'parametres':     main.innerHTML = renderParametres(); bindParametres(); break;
-    case 'stats':          main.innerHTML = renderStats(); break;
+    case 'stats':          main.innerHTML = renderStats(); bindStats(); break;
   }
   updateMonthLabel();
   updateSyncDot();
+  updateFab();
 
   // Badge alerte mensu sur le bouton Suivi
   const suiviBtn = document.querySelector('[data-view="suivi"]');
@@ -817,7 +828,62 @@ function renderSuivi() {
   </div>`}`;
 }
 
-function bindSuivi() { /* events délégués via onclick inline */ }
+function bindSuivi() {
+  // Anime les montants clés du Suivi
+  document.querySelectorAll('.sii-value, .rbb-amount').forEach(el => {
+    const raw = el.textContent.trim().replace(/\s/g,'').replace('€','').replace(',', '.').replace('−','-');
+    const v = parseFloat(raw.replace(/[^\d.\-]/g,''));
+    if (!isNaN(v)) animateAmount(el, v, 550);
+  });
+}
+
+// Bouton flottant d'ajout rapide — contextuel
+function updateFab() {
+  const fab = document.getElementById('fab-add');
+  if (!fab) return;
+  const shown = ['suivi', 'dashboard', 'mensualisation'].includes(state.view);
+  fab.classList.toggle('hidden', !shown);
+}
+function quickAdd() {
+  if (state.view === 'mensualisation') return showAddMensu();
+  if (state.view === 'suivi' || state.view === 'dashboard') {
+    if (state.view === 'dashboard') navigate('suivi');
+    return showAddSuiviEntry();
+  }
+}
+
+// Graphique en anneau (donut) de répartition des dépenses
+function bindStats() {
+  const cv = document.getElementById('stats-donut');
+  if (!cv || typeof Chart === 'undefined') return;
+  const entries = (window._statsView === 'annuel')
+    ? state.suivi.filter(e => e.annee === state.annee)
+    : state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee);
+  const by = {};
+  entries.forEach(e => {
+    const d = parseFloat(e.debit || 0);
+    if (d > 0) { const p = e.libelle_principal || 'Non classé'; by[p] = (by[p] || 0) + d; }
+  });
+  const items = Object.entries(by).sort((a,b)=>b[1]-a[1]);
+  if (items.length === 0) return;
+  const palette = ['#1E40AF','#2563EB','#3B82F6','#60A5FA','#F59E0B','#EF4444','#10B981','#8B5CF6','#EC4899','#14B8A6','#F97316','#6366F1'];
+  new Chart(cv, {
+    type: 'doughnut',
+    data: {
+      labels: items.map(i => i[0]),
+      datasets: [{ data: items.map(i => +i[1].toFixed(2)),
+        backgroundColor: items.map((_,i)=>palette[i % palette.length]),
+        borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '62%',
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 11 }, padding: 8 } },
+        tooltip: { callbacks: { label: c => `${c.label}: ${c.parsed.toLocaleString('fr-FR',{minimumFractionDigits:2})} €` } }
+      }
+    }
+  });
+}
 
 async function togglePointe(id, current) {
   const newVal = current === '✓' ? '' : '✓';
@@ -2130,6 +2196,25 @@ function getStatsData(entries) {
   return { totalDebit, totalCredit, sortD, sortC };
 }
 
+function sparkline(principal, type) {
+  // Tendance 6 derniers mois pour cette catégorie principale
+  const vals = [];
+  for (let i = 5; i >= 0; i--) {
+    let m = state.mois - i, y = state.annee;
+    while (m < 0) { m += 12; y--; }
+    const tot = state.suivi
+      .filter(e => e.annee === y && e.mois === m + 1 && e.libelle_principal === principal)
+      .reduce((s,e)=> s + parseFloat((type==='credit'?e.credit:e.debit) || 0), 0);
+    vals.push(tot);
+  }
+  const max = Math.max(...vals, 1), W = 70, H = 22;
+  const pts = vals.map((v,i) => `${(i/(vals.length-1)*W).toFixed(1)},${(H - (v/max)*H).toFixed(1)}`).join(' ');
+  const col = type === 'credit' ? '#10B981' : '#EF4444';
+  return `<svg class="sparkline" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
 function statsCatBlock(principal, data, totalRef, type) {
   const pct = totalRef > 0 ? data.total/totalRef*100 : 0;
   const icon = CAT_ICONS[principal] || (type==='credit'?'💰':'💳');
@@ -2141,9 +2226,12 @@ function statsCatBlock(principal, data, totalRef, type) {
       <div class="stats-cat-info">
         <div class="stats-cat-name">${escHtml(principal)}</div>
         <div class="stats-bar-wrap"><div class="stats-bar ${type}" style="width:${Math.min(pct,100).toFixed(1)}%"></div></div>
-        <div class="stats-pct">${pct.toFixed(1)}% du total</div>
+        <div class="stats-pct">${pct.toFixed(1)}% du total · tendance 6 mois</div>
       </div>
-      <div class="stats-cat-total ${type}">${fmt(data.total)}</div>
+      <div class="stats-cat-right">
+        ${sparkline(principal, type)}
+        <div class="stats-cat-total ${type}">${fmt(data.total)}</div>
+      </div>
     </div>
     <div class="stats-secs">
       ${sortedSecs.map(([sec,amt])=>{
@@ -2186,6 +2274,9 @@ function statsContent(totalDebit, totalCredit, sortD, sortC, period) {
         <div class="stats-sum-value ${solde>=0?'credit':'debit'}">${fmt(solde)}</div>
       </div>
     </div>
+    ${sortD.length > 0 ? `
+    <div class="stats-section-title">🍩 Répartition des dépenses <span class="stats-period">${period}</span></div>
+    <div class="card stats-donut-wrap"><canvas id="stats-donut"></canvas></div>` : ''}
     <div class="stats-section-title">📉 Postes de dépenses <span class="stats-period">${period}</span></div>
     <div class="stats-cats">${expHtml}</div>
     <div class="stats-section-title">📈 Récap des entrées <span class="stats-period">${period}</span></div>
