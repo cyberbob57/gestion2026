@@ -1431,7 +1431,8 @@ function renderParametres() {
       <div class="mp-list" id="mp-list">
         ${getMoyensPaiement().map((mp, i) => `
         <div class="mp-item">
-          <span>${escHtml(mp)}</span>
+          <span class="mp-ico">${entryIcon({ libelle_principal: mp })}</span>
+          <span class="mp-nom">${escHtml(mp)}</span>
           <button class="btn-icon danger" onclick="deleteMoyenPaiement(${i})" title="Supprimer">×</button>
         </div>`).join('') || '<div class="sec-empty">Aucun moyen de paiement</div>'}
       </div>
