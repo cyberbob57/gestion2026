@@ -189,7 +189,31 @@ function entryIcon(o) {
   if (/\b(free\s*mobile|mobile|forfait|sfr|orange|bouygues)\b/.test(txt)) return '🏠📱';          // mobile : maison + téléphone
   if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💼💵';   // revenu : billet de banque
   if (/\b(impot|impôt|impots|impôts|taxe|taxes|fonciere|foncière)\b/.test(txt)) return '📋🤲';   // impôts : main tendue
+  if (/\b(visa|mastercard|carte bancaire|carte visa|cb robert|cb carmela)\b/.test(txt) || /\bcarte\b/.test(txt)) {
+    let c1 = '#1E3A8A', c2 = '#2563EB';                          // défaut : bleu
+    if (txt.includes('platin'))  { c1 = '#475569'; c2 = '#94A3B8'; } // platinium : argent
+    if (txt.includes('gold') || txt.includes('premier')) { c1 = '#B45309'; c2 = '#F59E0B'; } // gold
+    if (txt.includes('robert'))  { c1 = '#1E3A8A'; c2 = '#3B82F6'; } // Robert : bleu
+    if (txt.includes('carmela') || txt.includes('carméla')) { c1 = '#7E22CE'; c2 = '#C026D3'; } // Carméla : violet
+    return cardSVG(c1, c2);
+  }
   return CAT_ICONS[o && o.libelle_principal] || '💳';
+}
+
+// Carte bancaire stylisée (dessin original — pas un logo de marque)
+function cardSVG(c1, c2) {
+  const id = 'cg' + Math.random().toString(36).slice(2, 7);
+  return `<svg class="card-svg" viewBox="0 0 36 24" width="30" height="20" role="img" aria-label="Carte bancaire">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>
+    </linearGradient></defs>
+    <rect x="1" y="2" width="34" height="20" rx="3" fill="url(#${id})"/>
+    <rect x="1" y="6" width="34" height="3.5" fill="rgba(0,0,0,.35)"/>
+    <rect x="4" y="12.5" width="6" height="4.5" rx="1" fill="#F4D03F"/>
+    <line x1="4" y1="19" x2="20" y2="19" stroke="rgba(255,255,255,.7)" stroke-width="1.4"/>
+    <circle cx="29" cy="16" r="3" fill="rgba(255,255,255,.55)"/>
+    <circle cx="32" cy="16" r="3" fill="rgba(255,255,255,.35)"/>
+  </svg>`;
 }
 
 // Petite voiture SVG colorée (couleur = différenciation véhicule)
