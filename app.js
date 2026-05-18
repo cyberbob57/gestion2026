@@ -50,6 +50,44 @@ async function setTheme(key) {
   navigate('parametres');
 }
 
+// ── Banques (badges stylisés originaux, pas les logos déposés) ──
+const BANKS = {
+  lbp:        { l1: 'La Banque', l2: 'Postale',        mk: 'LBP',  c1: '#FFD200', c2: '#003781', mkBg: '#FFD200', mkFg: '#003781' },
+  ca:         { l1: 'Crédit',    l2: 'Agricole',       mk: 'CA',   c1: '#009639', c2: '#006A4E', mkBg: '#009639', mkFg: '#FFFFFF' },
+  bnp:        { l1: 'BNP',       l2: 'Paribas',        mk: 'BNP',  c1: '#00915A', c2: '#007A4D', mkBg: '#00915A', mkFg: '#FFFFFF' },
+  sg:         { l1: 'Société',   l2: 'Générale',       mk: 'SG',   c1: '#E60028', c2: '#1A1A1A', mkBg: '#1A1A1A', mkFg: '#E60028' },
+  cm:         { l1: 'Crédit',    l2: 'Mutuel',         mk: 'CM',   c1: '#005DAA', c2: '#003B73', mkBg: '#005DAA', mkFg: '#FFFFFF' },
+  ce:         { l1: "Caisse",    l2: "d'Épargne",      mk: 'CE',   c1: '#E2001A', c2: '#9E0011', mkBg: '#E2001A', mkFg: '#FFFFFF' },
+  lcl:        { l1: 'LCL',       l2: 'Le Crédit Lyon.',mk: 'LCL',  c1: '#005EB8', c2: '#003B73', mkBg: '#005EB8', mkFg: '#FFFFFF' },
+  bp:         { l1: 'Banque',    l2: 'Populaire',      mk: 'BP',   c1: '#0067B1', c2: '#004680', mkBg: '#0067B1', mkFg: '#FFFFFF' },
+  cic:        { l1: 'CIC',       l2: 'Banque',         mk: 'CIC',  c1: '#0F4C9A', c2: '#0A3568', mkBg: '#0F4C9A', mkFg: '#FFFFFF' },
+  boursorama: { l1: 'Bourso',    l2: 'rama',           mk: 'BR',   c1: '#EC1C7D', c2: '#1A1A1A', mkBg: '#EC1C7D', mkFg: '#FFFFFF' },
+  fortuneo:   { l1: 'Fortu',     l2: 'neo',            mk: 'FO',   c1: '#7DBA00', c2: '#4F7800', mkBg: '#7DBA00', mkFg: '#FFFFFF' },
+  hellobank:  { l1: 'Hello',     l2: 'bank!',          mk: 'HB',   c1: '#00B5C8', c2: '#007A8A', mkBg: '#00B5C8', mkFg: '#FFFFFF' },
+  n26:        { l1: 'N',         l2: '26',             mk: 'N26',  c1: '#1A1A1A', c2: '#3A3A3A', mkBg: '#1A1A1A', mkFg: '#FFFFFF' },
+  revolut:    { l1: 'Revo',      l2: 'lut',            mk: 'R',    c1: '#1A1A1A', c2: '#2E6BFF', mkBg: '#2E6BFF', mkFg: '#FFFFFF' },
+  monabanq:   { l1: 'Mona',      l2: 'banq',           mk: 'MB',   c1: '#E2001A', c2: '#7A2182', mkBg: '#7A2182', mkFg: '#FFFFFF' },
+  axa:        { l1: 'AXA',       l2: 'Banque',         mk: 'AXA',  c1: '#00008F', c2: '#FF1721', mkBg: '#00008F', mkFg: '#FFFFFF' },
+  ing:        { l1: 'ING',       l2: 'Direct',         mk: 'ING',  c1: '#FF6200', c2: '#CC4E00', mkBg: '#FF6200', mkFg: '#FFFFFF' },
+  autre:      { l1: 'Mon',       l2: 'Compte',         mk: '€',    c1: '#1E3A8A', c2: '#2563EB', mkBg: '#FFFFFF', mkFg: '#1E3A8A' },
+};
+function getBanque() {
+  return (state.parametres && state.parametres['banque'])
+    || localStorage.getItem('banque') || 'lbp';
+}
+function bankBadgeHTML(key) {
+  const b = BANKS[key] || BANKS.lbp;
+  return `<div class="rapp-bank-badge" aria-label="Compte ${escHtml(b.l1)} ${escHtml(b.l2)}">
+    <span class="rbb-mark" style="background:${b.mkBg};color:${b.mkFg}">${escHtml(b.mk)}</span>
+    <span class="rbb-name"><span class="rbb-la" style="color:${b.c1}">${escHtml(b.l1)}</span><span class="rbb-postale">${escHtml(b.l2)}</span></span>
+  </div>`;
+}
+async function setBanque(key) {
+  localStorage.setItem('banque', key);
+  if (sb) await setParam('banque', key);
+  navigate('parametres');
+}
+
 // Couleur stable déduite du nom de catégorie (pour pastilles)
 function catColor(name) {
   const s = String(name || '');
@@ -757,10 +795,7 @@ function renderSuivi() {
 
   <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}">
     <div class="rapp-title">🏦 Rapprochement bancaire</div>
-    <div class="rapp-bank-badge" aria-label="Compte La Banque Postale">
-      <span class="rbb-mark">LBP</span>
-      <span class="rbb-name"><span class="rbb-la">La Banque</span><span class="rbb-postale">Postale</span></span>
-    </div>
+    ${bankBadgeHTML(getBanque())}
     <div class="rapp-bank-big" onclick="showSoldeBancaire()">
       <div class="rbb-label">Solde bancaire réel</div>
       ${isNaN(soldeBancaire)
@@ -1215,6 +1250,21 @@ function renderParametres() {
           <span class="ts-circle" style="background:linear-gradient(135deg, ${t.dark}, ${t.mid})"></span>
           <span class="ts-name">${t.nom}</span>
           ${k===tk?'<span class="ts-check">✓</span>':''}
+        </button>`).join('')}
+      </div>
+    </div>
+
+    <h3>Banque du compte courant</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="sub">Choisissez votre banque : son badge s'affichera sur la page Suivi. Synchronisé sur tous vos appareils.</div>
+      </div>
+      <div class="bank-grid">
+        ${Object.entries(BANKS).map(([k,b]) => `
+        <button class="bank-pick${k===getBanque()?' active':''}" onclick="setBanque('${k}')" title="${escHtml(b.l1)} ${escHtml(b.l2)}">
+          <span class="bp-mark" style="background:${b.mkBg};color:${b.mkFg}">${escHtml(b.mk)}</span>
+          <span class="bp-name"><span style="color:${b.c1}">${escHtml(b.l1)}</span> ${escHtml(b.l2)}</span>
+          ${k===getBanque()?'<span class="bp-check">✓</span>':''}
         </button>`).join('')}
       </div>
     </div>

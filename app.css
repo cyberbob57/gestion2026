@@ -1623,3 +1623,49 @@ a { color: var(--primary-mid); }
 @media (prefers-color-scheme: dark) {
   .theme-swatch { background: var(--card); }
 }
+
+/* ── Sélecteur de banque ───────────────────────────────── */
+.bank-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.bank-pick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 2px solid var(--border);
+  text-align: left;
+  transition: border-color .2s, transform .1s, box-shadow .2s;
+}
+.bank-pick:active { transform: scale(.97); }
+.bank-pick.active {
+  border-color: var(--primary-mid);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+}
+.bank-pick .bp-mark {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  font-size: 11px; font-weight: 900;
+  flex-shrink: 0;
+}
+.bank-pick .bp-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+  overflow: hidden;
+}
+.bank-pick .bp-check {
+  position: absolute;
+  top: 5px; right: 7px;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--primary-mid);
+}
+@media (prefers-color-scheme: dark) { .bank-pick { background: var(--card); } }
