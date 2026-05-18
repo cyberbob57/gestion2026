@@ -17,6 +17,39 @@ const CAT_ICONS = {
   'Imprévus':'⚡','Dépôt d\'argent':'💰','Ongles':'💅','Carburant':'⛽',
 };
 
+// ── Thèmes de couleur d'accent ─────────────────────────
+const THEMES = {
+  bleu:      { nom: 'Bleu',      dark: '#1E3A8A', primary: '#1E40AF', mid: '#2563EB', light: '#EFF6FF' },
+  indigo:    { nom: 'Indigo',    dark: '#312E81', primary: '#4338CA', mid: '#6366F1', light: '#EEF2FF' },
+  violet:    { nom: 'Violet',    dark: '#5B21B6', primary: '#6D28D9', mid: '#8B5CF6', light: '#F5F3FF' },
+  turquoise: { nom: 'Turquoise', dark: '#155E75', primary: '#0E7490', mid: '#06B6D4', light: '#ECFEFF' },
+  vert:      { nom: 'Vert',      dark: '#065F46', primary: '#047857', mid: '#10B981', light: '#ECFDF5' },
+  ambre:     { nom: 'Ambre',     dark: '#92400E', primary: '#B45309', mid: '#F59E0B', light: '#FFFBEB' },
+  bordeaux:  { nom: 'Bordeaux',  dark: '#881337', primary: '#9F1239', mid: '#E11D48', light: '#FFF1F2' },
+  rose:      { nom: 'Rose',      dark: '#9D174D', primary: '#BE185D', mid: '#EC4899', light: '#FDF2F8' },
+  ardoise:   { nom: 'Ardoise',   dark: '#0F172A', primary: '#334155', mid: '#64748B', light: '#F1F5F9' },
+};
+function getThemeKey() {
+  return (state.parametres && state.parametres['theme_accent'])
+    || localStorage.getItem('theme_accent') || 'bleu';
+}
+function applyTheme(key) {
+  const t = THEMES[key] || THEMES.bleu;
+  const r = document.documentElement.style;
+  r.setProperty('--primary',      t.primary);
+  r.setProperty('--primary-mid',  t.mid);
+  r.setProperty('--primary-dark', t.dark);
+  r.setProperty('--primary-light',t.light);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t.dark);
+}
+async function setTheme(key) {
+  localStorage.setItem('theme_accent', key);
+  applyTheme(key);
+  if (sb) await setParam('theme_accent', key);
+  navigate('parametres');
+}
+
 // Couleur stable déduite du nom de catégorie (pour pastilles)
 function catColor(name) {
   const s = String(name || '');
@@ -132,6 +165,7 @@ async function loadData() {
     if (r6.data) {
       state.parametres = {};
       r6.data.forEach(p => { state.parametres[p.cle] = p.valeur; });
+      if (state.parametres['theme_accent']) applyTheme(state.parametres['theme_accent']);
     }
   } catch (e) {
     showToast('Erreur de chargement', 'error');
@@ -1166,8 +1200,24 @@ function renderParametres() {
   const soldeExercice = state.soldes.find(x => x.mois === 1 && x.annee === state.annee);
   const soldeVal = soldeExercice ? parseFloat(soldeExercice.solde) : 0;
 
+  const tk = getThemeKey();
   return `
   <div class="params-section">
+
+    <h3>Thème de couleur</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="sub">Choisissez la couleur d'accent de l'application. Le réglage est synchronisé sur tous vos appareils.</div>
+      </div>
+      <div class="theme-grid">
+        ${Object.entries(THEMES).map(([k,t]) => `
+        <button class="theme-swatch${k===tk?' active':''}" onclick="setTheme('${k}')" title="${t.nom}">
+          <span class="ts-circle" style="background:linear-gradient(135deg, ${t.dark}, ${t.mid})"></span>
+          <span class="ts-name">${t.nom}</span>
+          ${k===tk?'<span class="ts-check">✓</span>':''}
+        </button>`).join('')}
+      </div>
+    </div>
 
     <h3>Solde bancaire début d'exercice</h3>
     <div class="card" style="margin:0">
@@ -2104,6 +2154,7 @@ function escHtml(s) {
 // INIT
 // ═══════════════════════════════════════════════════════
 async function init() {
+  applyTheme(localStorage.getItem('theme_accent') || 'bleu');
   if ('serviceWorker' in navigator) {
     // Recharge automatiquement quand une nouvelle version prend le contrôle
     let _reloaded = false;
