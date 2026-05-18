@@ -120,7 +120,7 @@ function chargerLogoBanque(ev) {
   reader.onload = () => {
     const img = new Image();
     img.onload = async () => {
-      const maxW = 220, maxH = 90;
+      const maxW = 420, maxH = 160;
       let { width: w, height: h } = img;
       const ratio = Math.min(maxW / w, maxH / h, 1);
       w = Math.round(w * ratio); h = Math.round(h * ratio);
