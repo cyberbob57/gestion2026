@@ -75,7 +75,14 @@ function getBanque() {
   return (state.parametres && state.parametres['banque'])
     || localStorage.getItem('banque') || 'lbp';
 }
+function getBanqueLogo() {
+  return (state.parametres && state.parametres['banque_logo']) || '';
+}
 function bankBadgeHTML(key) {
+  const logo = getBanqueLogo();
+  if (logo) {
+    return `<div class="rapp-bank-badge rapp-bank-logo"><img src="${logo}" alt="Logo banque"></div>`;
+  }
   const b = BANKS[key] || BANKS.lbp;
   return `<div class="rapp-bank-badge" aria-label="Compte ${escHtml(b.l1)} ${escHtml(b.l2)}">
     <span class="rbb-mark" style="background:${b.mkBg};color:${b.mkFg}">${escHtml(b.mk)}</span>
@@ -85,6 +92,42 @@ function bankBadgeHTML(key) {
 async function setBanque(key) {
   localStorage.setItem('banque', key);
   if (sb) await setParam('banque', key);
+  navigate('parametres');
+}
+// Import du logo PERSONNEL fourni par l'utilisateur (usage privé)
+function chargerLogoBanque(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Choisissez une image', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = async () => {
+      const maxW = 220, maxH = 90;
+      let { width: w, height: h } = img;
+      const ratio = Math.min(maxW / w, maxH / h, 1);
+      w = Math.round(w * ratio); h = Math.round(h * ratio);
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = cv.toDataURL('image/png');
+      setSyncing(true);
+      await setParam('banque_logo', dataUrl);
+      setSyncing(false);
+      showToast('Logo importé ✓', 'success');
+      navigate('parametres');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+async function supprimerLogoBanque() {
+  if (!confirm('Supprimer le logo importé et revenir au badge stylisé ?')) return;
+  setSyncing(true);
+  await sb.from('parametres').delete().eq('cle', 'banque_logo');
+  delete state.parametres['banque_logo'];
+  setSyncing(false);
+  showToast('Logo supprimé');
   navigate('parametres');
 }
 
@@ -1266,6 +1309,16 @@ function renderParametres() {
           <span class="bp-name"><span style="color:${b.c1}">${escHtml(b.l1)}</span> ${escHtml(b.l2)}</span>
           ${k===getBanque()?'<span class="bp-check">✓</span>':''}
         </button>`).join('')}
+      </div>
+      <div class="bank-logo-import">
+        <div class="sub" style="margin:14px 0 8px">Logo personnel (facultatif) — importez votre propre fichier image. Il remplacera le badge sur la page Suivi.</div>
+        ${getBanqueLogo() ? `
+        <div class="bank-logo-preview">
+          <img src="${getBanqueLogo()}" alt="Logo importé">
+          <button class="btn-small btn-danger" onclick="supprimerLogoBanque()">Supprimer</button>
+        </div>` : ''}
+        <button class="btn-small" onclick="document.getElementById('bank-logo-file').click()">${getBanqueLogo() ? 'Remplacer le logo' : 'Importer un logo'}</button>
+        <input type="file" id="bank-logo-file" accept="image/*" class="hidden" onchange="chargerLogoBanque(event)">
       </div>
     </div>
 

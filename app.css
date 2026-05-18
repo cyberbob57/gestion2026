@@ -1669,3 +1669,35 @@ a { color: var(--primary-mid); }
   color: var(--primary-mid);
 }
 @media (prefers-color-scheme: dark) { .bank-pick { background: var(--card); } }
+
+/* ── Logo banque personnel ─────────────────────────────── */
+.rapp-bank-badge.rapp-bank-logo {
+  background: rgba(255,255,255,.95);
+  padding: 6px 12px;
+}
+.rapp-bank-logo img {
+  max-height: 34px;
+  max-width: 180px;
+  display: block;
+  object-fit: contain;
+}
+.bank-logo-import { margin-top: 6px; }
+.bank-logo-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--primary-light);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.bank-logo-preview img {
+  max-height: 44px;
+  max-width: 160px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 6px;
+  padding: 4px;
+}
+.bank-logo-preview .btn-danger { margin-left: auto; }
