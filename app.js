@@ -75,6 +75,23 @@ function getBanque() {
   return (state.parametres && state.parametres['banque'])
     || localStorage.getItem('banque') || 'lbp';
 }
+function getSuiviTitre() {
+  return (state.parametres && state.parametres['suivi_titre'])
+    || localStorage.getItem('suivi_titre')
+    || 'Suivi journalier compte courant Robert et Carméla';
+}
+async function setSuiviTitre() {
+  const inp = document.getElementById('suivi-titre-inp');
+  const val = (inp && inp.value || '').trim();
+  if (!val) { showToast('Le titre ne peut pas être vide', 'error'); return; }
+  localStorage.setItem('suivi_titre', val);
+  setSyncing(true);
+  await setParam('suivi_titre', val);
+  setSyncing(false);
+  showToast('Titre mis à jour ✓', 'success');
+  navigate('parametres');
+}
+
 function getBanqueLogo() {
   return (state.parametres && state.parametres['banque_logo']) || '';
 }
@@ -311,7 +328,7 @@ function showSetup() {
 function navigate(view) {
   state.view = view;
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  const titles = { dashboard:'Accueil', mensualisation:'Mensualisation', suivi:'Suivi journalier compte courant Robert et Carméla', parametres:'Paramètres', stats:'Statistiques' };
+  const titles = { dashboard:'Accueil', mensualisation:'Mensualisation', suivi:getSuiviTitre(), parametres:'Paramètres', stats:'Statistiques' };
   document.getElementById('page-title').textContent = titles[view];
   render();
 }
@@ -1322,6 +1339,17 @@ function renderParametres() {
       </div>
     </div>
 
+    <h3>Titre de la page Suivi</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:8px">
+        <div class="sub">Personnalisez le titre affiché en haut de la page Suivi (et sur l'export PDF). Synchronisé sur tous vos appareils.</div>
+      </div>
+      <div class="chip-input-row">
+        <input type="text" id="suivi-titre-inp" value="${escHtml(getSuiviTitre())}" placeholder="Ex : Suivi compte courant…">
+        <button class="btn-small" onclick="setSuiviTitre()">Enregistrer</button>
+      </div>
+    </div>
+
     <h3>Solde bancaire début d'exercice</h3>
     <div class="card" style="margin:0">
       <div class="params-item" style="border:none;padding:0 0 12px 0">
@@ -2107,7 +2135,7 @@ function exportSuiviPDF() {
     .pos{color:#059669}.neg{color:#DC2626}
     @media print{body{padding:0}@page{margin:14mm}}
   </style></head><body>
-    <h1>Suivi journalier — Compte courant Robert et Carméla — ${MOIS_FR[state.mois]} ${state.annee}</h1>
+    <h1>${escHtml(getSuiviTitre())} — ${MOIS_FR[state.mois]} ${state.annee}</h1>
     <div class="sub">Édité le ${new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})}</div>
     <div class="recap">
       <div class="box"><div class="l">Report</div><div class="v ${soldeDepart>=0?'pos':'neg'}">${fmt(soldeDepart)}</div></div>
