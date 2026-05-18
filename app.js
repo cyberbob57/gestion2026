@@ -1466,14 +1466,14 @@ function renderParametres() {
     <h3>Chéquiers</h3>
     <div class="card" style="margin:0">
       <div class="chequier-row">
-        <div class="chequier-label">🔵 Chéquier Robert</div>
+        <div class="chequier-label">📘 Chéquier Robert</div>
         <div class="chip-input-row" style="margin:4px 0 0 0">
           <input type="text" id="cheq-robert" value="${escHtml(state.parametres['chequier_robert'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
           <button class="btn-small" onclick="saveChequier('robert')">OK</button>
         </div>
       </div>
       <div class="chequier-row" style="margin-top:12px">
-        <div class="chequier-label">🔴 Chéquier Carméla</div>
+        <div class="chequier-label">📗 Chéquier Carméla</div>
         <div class="chip-input-row" style="margin:4px 0 0 0">
           <input type="text" id="cheq-carmela" value="${escHtml(state.parametres['chequier_carmela'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
           <button class="btn-small" onclick="saveChequier('carmela')">OK</button>
