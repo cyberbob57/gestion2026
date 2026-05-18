@@ -189,6 +189,11 @@ function entryIcon(o) {
   if (/\b(free\s*mobile|mobile|forfait|sfr|orange|bouygues)\b/.test(txt)) return '🏠📱';          // mobile : maison + téléphone
   if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💼💵';   // revenu : billet de banque
   if (/\b(impot|impôt|impots|impôts|taxe|taxes|fonciere|foncière)\b/.test(txt)) return '📋🤲';   // impôts : main tendue
+  if (/pr[ée]l[èe]vement/.test(txt))                    return '💉';                              // prélèvement : seringue
+  if (/ch[èe]que/.test(txt)) {
+    if (txt.includes('carmela') || txt.includes('carméla')) return '📗';                          // chèque Carméla : chéquier vert
+    return '📘';                                                                                   // chèque Robert : chéquier bleu
+  }
   if (txt.includes('paypal')) return paypalSVG(/4\s*x|4x|4 fois|4 ?éch/.test(txt));
   if (/\b(visa|mastercard|carte bancaire|carte visa|cb robert|cb carmela)\b/.test(txt) || /\bcarte\b/.test(txt)) {
     let c1 = '#1E3A8A', c2 = '#2563EB';                              // défaut : bleu
