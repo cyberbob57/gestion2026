@@ -1012,6 +1012,18 @@ function renderSuivi() {
     </div>
   </div>
 
+  ${(() => {
+    if (getCompteActif() === 'courant') return '';
+    const s = epargneStyle(nomCompteActif());
+    return `<div class="rapp-produit" style="background:linear-gradient(135deg,${s.c1},${s.c2})">
+      ${epargneLogo(s)}
+      <div class="rapp-produit-id">
+        <div class="rapp-produit-nom">${escHtml(nomCompteActif())}</div>
+        <div class="rapp-produit-tag">${s.icon} ${s.label}</div>
+      </div>
+      ${bankMiniHTML()}
+    </div>`;
+  })()}
   <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}">
     <div class="rapp-title">🏦 Rapprochement bancaire</div>
     ${bankBadgeHTML(getBanque())}
