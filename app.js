@@ -100,6 +100,19 @@ function getComptes() {
   return [{ id: 'courant', nom: 'Compte courant' }, ...s];
 }
 function getCompteActif() { return state.compteActif || 'courant'; }
+// Compte de destination des virements d'épargne automatiques
+function getCompteEpargne() {
+  const v = state.parametres && state.parametres['compte_epargne'];
+  const secs = getComptes().slice(1);
+  if (v && secs.some(c => c.id === v)) return v;
+  return secs.length === 1 ? secs[0].id : '';
+}
+// Détecte une opération d'épargne (libellé contenant épargne / livret)
+function isEpargne(e) {
+  const t = [e && e.libelle_principal, e && e.libelle_secondaire, e && e.libelle_libre]
+    .filter(Boolean).join(' ').toLowerCase();
+  return /[ée]pargne|livret/.test(t);
+}
 function nomCompteActif() {
   const c = getComptes().find(x => x.id === getCompteActif());
   return c ? c.nom : 'Compte courant';
@@ -116,6 +129,11 @@ async function ajouterCompte() {
   s.push({ id: 'c' + Date.now().toString(36), nom });
   await setParam('comptes', JSON.stringify(s));
   showToast('Compte ajouté ✓', 'success');
+  navigate('parametres');
+}
+async function setCompteEpargne(id) {
+  await setParam('compte_epargne', id || '');
+  showToast(id ? 'Virement épargne activé ✓' : 'Virement épargne désactivé', 'success');
   navigate('parametres');
 }
 async function supprimerCompte(id) {
@@ -1140,6 +1158,31 @@ function bindStats() {
 async function togglePointe(id, current) {
   const newVal = current === '✓' ? '' : '✓';
   await sb.from('suivi_mensuel').update({ pointe: newVal }).eq('id', id);
+
+  // Virement épargne automatique : pointer une opération d'épargne du
+  // compte courant crée (ou retire) le crédit correspondant sur le livret
+  const e = state.suivi.find(x => x.id === id);
+  const dest = getCompteEpargne();
+  if (e && suiviCompte(e) === 'courant' && isEpargne(e) && dest) {
+    const montant = parseFloat(e.debit || 0);
+    if (montant > 0) {
+      if (newVal === '✓') {
+        const existe = state.suivi.some(x => x.source_id === id);
+        if (!existe) {
+          await sb.from('suivi_mensuel').insert({
+            annee: e.annee, mois: e.mois, jour: e.jour,
+            libelle_principal: 'Épargne',
+            libelle_libre: 'Versement depuis compte courant',
+            credit: montant, debit: null,
+            compte: dest, source_id: id,
+            is_mensualisation: false,
+          });
+        }
+      } else {
+        await sb.from('suivi_mensuel').delete().eq('source_id', id);
+      }
+    }
+  }
   await loadData();
 }
 
@@ -1426,6 +1469,8 @@ async function deleteSuiviEntry(id) {
   if (!confirm('Supprimer cette opération ?')) return;
   closeModal();
   await sb.from('suivi_mensuel').delete().eq('id', id);
+  // Retire aussi le virement épargne automatique éventuellement lié
+  await sb.from('suivi_mensuel').delete().eq('source_id', id);
   showToast('Supprimée', 'success');
   await loadData();
 }
@@ -1569,6 +1614,17 @@ function renderParametres() {
         <input type="text" id="new-compte" placeholder="Nouveau compte (ex : Livret A)…">
         <button class="btn-small" onclick="ajouterCompte()">Ajouter</button>
       </div>
+      ${getComptes().length > 1 ? `
+      <div class="params-item-left" style="margin:16px 0 8px">
+        <div class="name">↪ Virement épargne automatique</div>
+        <div class="sub">Quand vous <strong>pointez</strong> une opération d'épargne du compte courant, son montant est automatiquement inscrit en crédit sur le compte choisi ci-dessous.</div>
+      </div>
+      <div class="chip-input-row">
+        <select id="compte-epargne-sel" onchange="setCompteEpargne(this.value)">
+          <option value="">— Désactivé —</option>
+          ${getComptes().slice(1).map(c => `<option value="${c.id}"${getCompteEpargne()===c.id?' selected':''}>${escHtml(c.nom)}</option>`).join('')}
+        </select>
+      </div>` : ''}
     </div>
 
     <h3>Chéquiers</h3>
