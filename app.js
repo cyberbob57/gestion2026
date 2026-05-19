@@ -865,12 +865,6 @@ function getSoldeDepart(mois, annee, compte) {
   let pm = mois - 1, pa = annee;
   if (pm < 0) { pm = 11; pa--; }
   if (pa < 2025) return 0; // base : stoppe la récursion avant 2025
-  // Pour un compte secondaire : si un solde bancaire réel a été saisi le
-  // mois précédent, c'est lui le solde de fin → on le reporte directement.
-  if (compte !== 'courant') {
-    const sb = getSoldeBancaire(pm, pa, compte);
-    if (!isNaN(sb)) return sb;
-  }
   const prevDepart = getSoldeDepart(pm, pa, compte);
   const prevEntries = state.suivi.filter(e => e.mois === (pm + 1) && e.annee === pa && suiviCompte(e) === compte);
   const prevD = prevEntries.reduce((acc, e) => acc + parseFloat(e.debit  || 0), 0);
