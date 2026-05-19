@@ -1936,10 +1936,15 @@ async function saveChequier(nom) {
 }
 async function saveChequierCarnets(nom) {
   const g = id => (document.getElementById(id)?.value || '').trim();
-  await setParam(`chequier_${nom}_debut`,  g(`cheqdeb-${nom}`));
-  await setParam(`chequier_${nom}_fin`,    g(`cheqfin-${nom}`));
-  await setParam(`chequier_${nom}_debut2`, g(`cheqdeb2-${nom}`));
-  await setParam(`chequier_${nom}_fin2`,   g(`cheqfin2-${nom}`));
+  // Lire TOUTES les valeurs avant toute sauvegarde (setParam reconstruit le DOM)
+  const deb  = g(`cheqdeb-${nom}`);
+  const fin  = g(`cheqfin-${nom}`);
+  const deb2 = g(`cheqdeb2-${nom}`);
+  const fin2 = g(`cheqfin2-${nom}`);
+  await setParam(`chequier_${nom}_debut`,  deb);
+  await setParam(`chequier_${nom}_fin`,    fin);
+  await setParam(`chequier_${nom}_debut2`, deb2);
+  await setParam(`chequier_${nom}_fin2`,   fin2);
   showToast('Carnets enregistrés ✓', 'success');
   navigate('parametres');
 }
