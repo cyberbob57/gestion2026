@@ -118,17 +118,26 @@ async function renommerCompte(id) {
 }
 function getCompteActif() { return state.compteActif || 'courant'; }
 // Compte de destination des virements d'épargne automatiques
-function getCompteEpargne() {
-  const v = state.parametres && state.parametres['compte_epargne'];
-  const secs = getComptes().slice(1);
-  if (v && secs.some(c => c.id === v)) return v;
-  return secs.length === 1 ? secs[0].id : '';
+// Règles de virement automatique : [{kw, compte}] — ordre = priorité
+function getVirementsAuto() {
+  let r = [];
+  try { r = JSON.parse(state.parametres['virements_auto'] || '[]'); if (!Array.isArray(r)) r = []; } catch { r = []; }
+  // Rétro-compatibilité : ancien réglage unique compte_epargne
+  if (r.length === 0 && state.parametres && state.parametres['compte_epargne']) {
+    r = [{ kw: 'epargne', compte: state.parametres['compte_epargne'] }];
+  }
+  return r;
 }
-// Détecte une opération d'épargne (libellé contenant épargne / livret)
-function isEpargne(e) {
+// Trouve le compte de destination pour une opération (1ère règle qui matche)
+function destinationVirement(e) {
   const t = [e && e.libelle_principal, e && e.libelle_secondaire, e && e.libelle_libre]
     .filter(Boolean).join(' ').toLowerCase();
-  return /[ée]pargne|livret/.test(t);
+  const secs = getComptes().slice(1).map(c => c.id);
+  for (const r of getVirementsAuto()) {
+    const kw = (r && r.kw || '').trim().toLowerCase();
+    if (kw && r.compte && secs.includes(r.compte) && t.includes(kw)) return r.compte;
+  }
+  return '';
 }
 function nomCompteActif() {
   const c = getComptes().find(x => x.id === getCompteActif());
@@ -148,9 +157,23 @@ async function ajouterCompte() {
   showToast('Compte ajouté ✓', 'success');
   navigate('parametres');
 }
-async function setCompteEpargne(id) {
-  await setParam('compte_epargne', id || '');
-  showToast(id ? 'Virement épargne activé ✓' : 'Virement épargne désactivé', 'success');
+async function ajouterVirementAuto() {
+  const kw = (document.getElementById('va-kw')?.value || '').trim();
+  const compte = document.getElementById('va-compte')?.value || '';
+  if (!kw || !compte) { showToast('Indiquez un mot-clé et un compte', 'error'); return; }
+  const r = getVirementsAuto();
+  r.push({ kw, compte });
+  await setParam('virements_auto', JSON.stringify(r));
+  await setParam('compte_epargne', ''); // bascule vers le système de règles
+  showToast('Virement automatique ajouté ✓', 'success');
+  navigate('parametres');
+}
+async function supprimerVirementAuto(idx) {
+  const r = getVirementsAuto();
+  r.splice(idx, 1);
+  await setParam('virements_auto', JSON.stringify(r));
+  await setParam('compte_epargne', '');
+  showToast('Règle supprimée');
   navigate('parametres');
 }
 async function supprimerCompte(id) {
@@ -1176,11 +1199,11 @@ async function togglePointe(id, current) {
   const newVal = current === '✓' ? '' : '✓';
   await sb.from('suivi_mensuel').update({ pointe: newVal }).eq('id', id);
 
-  // Virement épargne automatique : pointer une opération d'épargne du
-  // compte courant crée (ou retire) le crédit correspondant sur le livret
+  // Virement automatique : pointer une opération du compte courant qui
+  // correspond à une règle crée (ou retire) le crédit sur le compte cible
   const e = state.suivi.find(x => x.id === id);
-  const dest = getCompteEpargne();
-  if (e && suiviCompte(e) === 'courant' && isEpargne(e) && dest) {
+  const dest = e && suiviCompte(e) === 'courant' ? destinationVirement(e) : '';
+  if (e && dest) {
     const montant = parseFloat(e.debit || 0);
     if (montant > 0) {
       if (newVal === '✓') {
@@ -1633,14 +1656,21 @@ function renderParametres() {
       </div>
       ${getComptes().length > 1 ? `
       <div class="params-item-left" style="margin:16px 0 8px">
-        <div class="name">↪ Virement épargne automatique</div>
-        <div class="sub">Quand vous <strong>pointez</strong> une opération d'épargne du compte courant, son montant est automatiquement inscrit en crédit sur le compte choisi ci-dessous.</div>
+        <div class="name">↪ Virements automatiques</div>
+        <div class="sub">Quand vous <strong>pointez</strong> une opération du compte courant dont le libellé contient le mot-clé, son montant est crédité automatiquement sur le compte cible. Règle la plus spécifique en premier (priorité du haut vers le bas).</div>
       </div>
-      <div class="chip-input-row">
-        <select id="compte-epargne-sel" onchange="setCompteEpargne(this.value)">
-          <option value="">— Désactivé —</option>
-          ${getComptes().slice(1).map(c => `<option value="${c.id}"${getCompteEpargne()===c.id?' selected':''}>${escHtml(c.nom)}</option>`).join('')}
+      <div class="va-list">
+        ${getVirementsAuto().map((r,i) => {
+          const c = getComptes().find(x => x.id === r.compte);
+          return `<div class="va-item"><span class="va-kw-tag">${escHtml(r.kw)}</span><span class="va-arrow">→</span><span class="va-dest">${escHtml(c ? c.nom : '⚠ compte supprimé')}</span><button class="btn-icon danger" onclick="supprimerVirementAuto(${i})" title="Supprimer">×</button></div>`;
+        }).join('') || '<div class="sec-empty">Aucune règle</div>'}
+      </div>
+      <div class="va-add">
+        <input type="text" id="va-kw" placeholder="Mot-clé (ex : impôts)">
+        <select id="va-compte">
+          ${getComptes().slice(1).map(c => `<option value="${c.id}">${escHtml(c.nom)}</option>`).join('')}
         </select>
+        <button class="btn-small" onclick="ajouterVirementAuto()">Ajouter</button>
       </div>` : ''}
     </div>
 

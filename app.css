@@ -1735,3 +1735,12 @@ a { color: var(--primary-mid); }
 .btn-annul-cheque:active { transform:scale(.98); }
 
 .chequier-carnet-label { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin:10px 0 4px; }
+
+.va-list { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.va-item { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--primary-light); border:1px solid var(--border); border-radius:10px; }
+.va-kw-tag { font-weight:700; font-size:13px; color:var(--primary); background:var(--card); border:1px solid var(--border); border-radius:6px; padding:2px 8px; }
+.va-arrow { color:var(--text-muted); }
+.va-dest { flex:1; font-size:13px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.va-add { display:flex; gap:8px; }
+.va-add input { flex:1; min-width:0; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:var(--card); color:var(--text); outline:none; }
+.va-add select { padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; background:var(--card); color:var(--text); max-width:130px; }
