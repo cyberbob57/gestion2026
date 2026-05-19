@@ -1646,32 +1646,26 @@ function renderParametres() {
 
     <h3>Chéquiers</h3>
     <div class="card" style="margin:0">
-      <div class="chequier-row">
-        <div class="chequier-label">📘 Chéquier Robert</div>
+      ${[['robert','📘 Chéquier Robert','Chèque Robert'],['carmela','📗 Chéquier Carméla','Chèque Carméla']].map(([n,lbl,typ],i) => `
+      <div class="chequier-row"${i?' style="margin-top:16px"':''}>
+        <div class="chequier-label">${lbl}</div>
         <div class="chip-input-row" style="margin:4px 0 0 0">
-          <input type="text" id="cheq-robert" value="${escHtml(state.parametres['chequier_robert'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
-          <button class="btn-small" onclick="saveChequier('robert')">OK</button>
+          <input type="text" id="cheq-${n}" value="${escHtml(state.parametres['chequier_'+n] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
+          <button class="btn-small" onclick="saveChequier('${n}')">OK</button>
         </div>
+        <div class="chequier-carnet-label">Carnet 1</div>
         <div class="chequier-bornes">
-          <input type="text" id="cheqdeb-robert" value="${escHtml(state.parametres['chequier_robert_debut'] || '')}" placeholder="1ère formule en ma possession" inputmode="numeric">
-          <input type="text" id="cheqfin-robert" value="${escHtml(state.parametres['chequier_robert_fin'] || '')}" placeholder="Dernière formule" inputmode="numeric">
-          <button class="btn-small" onclick="saveChequierBornes('robert')">OK</button>
+          <input type="text" id="cheqdeb-${n}" value="${escHtml(state.parametres['chequier_'+n+'_debut'] || '')}" placeholder="1ère formule" inputmode="numeric">
+          <input type="text" id="cheqfin-${n}" value="${escHtml(state.parametres['chequier_'+n+'_fin'] || '')}" placeholder="Dernière formule" inputmode="numeric">
         </div>
-        <button class="btn-annul-cheque" onclick="annulerCheque('robert')">✖ Annuler la formule n° ${escHtml(getNextCheque('Chèque Robert') || '—')}</button>
-      </div>
-      <div class="chequier-row" style="margin-top:14px">
-        <div class="chequier-label">📗 Chéquier Carméla</div>
-        <div class="chip-input-row" style="margin:4px 0 0 0">
-          <input type="text" id="cheq-carmela" value="${escHtml(state.parametres['chequier_carmela'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
-          <button class="btn-small" onclick="saveChequier('carmela')">OK</button>
-        </div>
+        <div class="chequier-carnet-label">Carnet 2 (nouveau chéquier commandé en cours d'année)</div>
         <div class="chequier-bornes">
-          <input type="text" id="cheqdeb-carmela" value="${escHtml(state.parametres['chequier_carmela_debut'] || '')}" placeholder="1ère formule en ma possession" inputmode="numeric">
-          <input type="text" id="cheqfin-carmela" value="${escHtml(state.parametres['chequier_carmela_fin'] || '')}" placeholder="Dernière formule" inputmode="numeric">
-          <button class="btn-small" onclick="saveChequierBornes('carmela')">OK</button>
+          <input type="text" id="cheqdeb2-${n}" value="${escHtml(state.parametres['chequier_'+n+'_debut2'] || '')}" placeholder="1ère formule" inputmode="numeric">
+          <input type="text" id="cheqfin2-${n}" value="${escHtml(state.parametres['chequier_'+n+'_fin2'] || '')}" placeholder="Dernière formule" inputmode="numeric">
+          <button class="btn-small" onclick="saveChequierCarnets('${n}')">Enregistrer</button>
         </div>
-        <button class="btn-annul-cheque" onclick="annulerCheque('carmela')">✖ Annuler la formule n° ${escHtml(getNextCheque('Chèque Carméla') || '—')}</button>
-      </div>
+        <button class="btn-annul-cheque" onclick="annulerCheque('${n}')">✖ Annuler la formule n° ${escHtml(getNextCheque(typ) || '—')}</button>
+      </div>`).join('')}
     </div>
 
     <h3>Pictogrammes personnalisés</h3>
@@ -1910,12 +1904,14 @@ async function saveChequier(nom) {
   await setParam(cle, val);
   showToast('Numéro de chéquier enregistré ✓', 'success');
 }
-async function saveChequierBornes(nom) {
-  const deb = (document.getElementById(`cheqdeb-${nom}`)?.value || '').trim();
-  const fin = (document.getElementById(`cheqfin-${nom}`)?.value || '').trim();
-  await setParam(`chequier_${nom}_debut`, deb);
-  await setParam(`chequier_${nom}_fin`, fin);
-  showToast('Plage de formules enregistrée ✓', 'success');
+async function saveChequierCarnets(nom) {
+  const g = id => (document.getElementById(id)?.value || '').trim();
+  await setParam(`chequier_${nom}_debut`,  g(`cheqdeb-${nom}`));
+  await setParam(`chequier_${nom}_fin`,    g(`cheqfin-${nom}`));
+  await setParam(`chequier_${nom}_debut2`, g(`cheqdeb2-${nom}`));
+  await setParam(`chequier_${nom}_fin2`,   g(`cheqfin2-${nom}`));
+  showToast('Carnets enregistrés ✓', 'success');
+  navigate('parametres');
 }
 // Annule une formule de chèque (perdue/abîmée) → décale de 1 numéro
 async function annulerCheque(nom) {
@@ -2255,8 +2251,14 @@ function getMoyensPaiement() {
 }
 function getNextCheque(type) {
   const base = type.includes('Robert') ? 'chequier_robert' : 'chequier_carmela';
-  // Prochain n° explicite, sinon on démarre sur la 1ère formule en possession
-  return state.parametres[base] || state.parametres[base + '_debut'] || '';
+  // Prochain n° explicite, sinon on démarre sur la 1ère formule du carnet 1
+  let n = parseInt(state.parametres[base] || state.parametres[base + '_debut'] || '0', 10);
+  if (!n) return '';
+  const fin1  = parseInt(state.parametres[base + '_fin']    || '0', 10);
+  const deb2  = parseInt(state.parametres[base + '_debut2'] || '0', 10);
+  // Carnet 1 épuisé → bascule automatique sur le carnet 2
+  if (fin1 && deb2 && n > fin1 && n < deb2) n = deb2;
+  return String(n);
 }
 async function setParam(cle, valeur) {
   await sb.from('parametres').upsert({ cle, valeur }, { onConflict: 'cle' });

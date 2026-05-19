@@ -1,4 +1,4 @@
-const CACHE = 'gestion2026-v30';
+const CACHE = 'gestion2026-v31';
 const ASSETS = ['./index.html', './app.css', './app.js', './icon.svg'];
 
 self.addEventListener('install', e => {
