@@ -994,8 +994,37 @@ function renderSuivi() {
     </div>
   </div>` : ''}
 
-  ${entries.length === 0
-    ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>${getCompteActif() === 'courant' ? 'Cliquez sur "Inscrire les mensualisations" pour commencer' : 'Cliquez sur "＋ Saisir" pour ajouter une opération'}</small></p></div>`
+  ${entries.length === 0 && getCompteActif() === 'courant'
+    ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>Cliquez sur "Inscrire les mensualisations" pour commencer</small></p></div>`
+    : entries.length === 0
+    ? `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
+    <div class="suivi-table-wrap">
+    <table class="suivi-table">
+      <thead>
+        <tr>
+          <th class="col-jour">Jour</th>
+          <th class="col-libelle">Libellé</th>
+          <th class="col-type">Type</th>
+          <th class="col-cheque">Chèque</th>
+          <th class="col-pointe">P</th>
+          <th class="col-amount">Crédit</th>
+          <th class="col-amount">Débit</th>
+          <th class="col-solde">Solde</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="suivi-row"><td colspan="8" style="text-align:center;color:var(--text-muted);padding:22px 8px;font-size:13px">Aucune opération — cliquez sur « ＋ Saisir » pour en ajouter</td></tr>
+      </tbody>
+      <tfoot>
+        <tr class="suivi-total-row">
+          <td colspan="5">Totaux ${MOIS_FR[state.mois]}</td>
+          <td class="col-amount credit-cell">${fmt(totalC)}</td>
+          <td class="col-amount debit-cell">${fmt(totalD)}</td>
+          <td class="col-solde ${soldeFin >= 0 ? 'positive' : 'negative'}">${fmt(soldeFin)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>`
     : rows.length === 0
     ? `<div class="empty-state"><div class="icon">🔍</div><p>Aucun résultat<br><small>Aucune opération ne correspond à votre recherche/filtre</small></p></div>`
     : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
