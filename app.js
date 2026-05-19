@@ -972,7 +972,7 @@ function renderSuivi() {
   </div>
 
   <div class="suivi-toolbar">
-    <button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>
+    ${getCompteActif() === 'courant' ? `<button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>` : ''}
     <button class="btn-pointer-tout" onclick="pointerTout()" title="Pointer toutes les opérations">✓✓</button>
     <button class="btn-add" onclick="showAddSuiviEntry()">＋ Saisir</button>
     <button class="btn-pdf" onclick="exportSuiviPDF()" title="Exporter le mois en PDF">📄</button>
@@ -995,7 +995,7 @@ function renderSuivi() {
   </div>` : ''}
 
   ${entries.length === 0
-    ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>Cliquez sur "Inscrire les mensualisations" pour commencer</small></p></div>`
+    ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>${getCompteActif() === 'courant' ? 'Cliquez sur "Inscrire les mensualisations" pour commencer' : 'Cliquez sur "＋ Saisir" pour ajouter une opération'}</small></p></div>`
     : rows.length === 0
     ? `<div class="empty-state"><div class="icon">🔍</div><p>Aucun résultat<br><small>Aucune opération ne correspond à votre recherche/filtre</small></p></div>`
     : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
