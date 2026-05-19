@@ -1936,16 +1936,19 @@ async function saveChequier(nom) {
 }
 async function saveChequierCarnets(nom) {
   const g = id => (document.getElementById(id)?.value || '').trim();
-  // Lire TOUTES les valeurs avant toute sauvegarde (setParam reconstruit le DOM)
-  const deb  = g(`cheqdeb-${nom}`);
-  const fin  = g(`cheqfin-${nom}`);
-  const deb2 = g(`cheqdeb2-${nom}`);
-  const fin2 = g(`cheqfin2-${nom}`);
-  await setParam(`chequier_${nom}_debut`,  deb);
-  await setParam(`chequier_${nom}_fin`,    fin);
-  await setParam(`chequier_${nom}_debut2`, deb2);
-  await setParam(`chequier_${nom}_fin2`,   fin2);
+  // Un seul upsert groupé (évite la condition de course des setParam multiples)
+  const rows = [
+    { cle: `chequier_${nom}_debut`,  valeur: g(`cheqdeb-${nom}`)  },
+    { cle: `chequier_${nom}_fin`,    valeur: g(`cheqfin-${nom}`)  },
+    { cle: `chequier_${nom}_debut2`, valeur: g(`cheqdeb2-${nom}`) },
+    { cle: `chequier_${nom}_fin2`,   valeur: g(`cheqfin2-${nom}`) },
+  ];
+  setSyncing(true);
+  const { error } = await sb.from('parametres').upsert(rows, { onConflict: 'cle' });
+  setSyncing(false);
+  if (error) { showToast('Erreur : ' + error.message, 'error'); return; }
   showToast('Carnets enregistrés ✓', 'success');
+  await loadData();
   navigate('parametres');
 }
 // Annule une formule de chèque (perdue/abîmée) → décale de 1 numéro
@@ -2668,6 +2671,39 @@ function soldeCompteFin(compteId) {
   return dep + c - d;
 }
 
+// Identité visuelle par produit d'épargne (déduite du nom du compte)
+function epargneStyle(nom) {
+  const t = (nom || '').toLowerCase();
+  if (/livret\s*a\b|\blivret a/.test(t))
+    return { key:'a',  c1:'#E2001A', c2:'#A60010', soft:'#FDECEC', accent:'#E2001A', mk:'A',  icon:'🔒', label:'Épargne réglementée · sécurisée' };
+  if (/\bldds?\b|développement durable|developpement durable/.test(t))
+    return { key:'ldd', c1:'#1FA855', c2:'#0E7C3A', soft:'#E9F8EF', accent:'#1FA855', mk:'LDD', icon:'🌱', label:'Développement durable · responsable' };
+  if (/assurance\s*vie|cachemire|cachemir/.test(t))
+    return { key:'av',  c1:'#1A1712', c2:'#000000', soft:'#FAF5E9', accent:'#C9A14A', mk:'AV', icon:'♦', label:'Assurance vie · premium' };
+  return { key:'gen', c1:'#1E40AF', c2:'#1E3A8A', soft:'#EFF6FF', accent:'#2563EB', mk:'€', icon:'💰', label:"Compte d'épargne" };
+}
+// Logo SVG original (non copié d'une marque) pour chaque produit
+function epargneLogo(s) {
+  const id = 'el' + Math.random().toString(36).slice(2,7);
+  const grad = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${s.c1}"/><stop offset="1" stop-color="${s.c2}"/></linearGradient></defs>`;
+  let inner = '';
+  if (s.key === 'a') {
+    inner = `<path d="M22 12l8 4v6c0 6-4 9-8 11-4-2-8-5-8-11v-6z" fill="rgba(255,255,255,.16)"/>
+      <text x="22" y="29" text-anchor="middle" font-family="Arial" font-weight="900" font-size="18" fill="#fff">A</text>`;
+  } else if (s.key === 'ldd') {
+    inner = `<path d="M22 11c7 3 9 8 7 14-5 1-9-1-11-5-2-4-1-7 4-9z" fill="rgba(255,255,255,.22)"/>
+      <path d="M16 31c3-7 7-10 12-12" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  } else if (s.key === 'av') {
+    inner = `<path d="M22 12l4 7-4 13-4-13z" fill="#C9A14A"/><circle cx="22" cy="13" r="2.4" fill="#E7C97A"/>`;
+  } else {
+    inner = `<text x="22" y="29" text-anchor="middle" font-family="Arial" font-weight="900" font-size="18" fill="#fff">€</text>`;
+  }
+  return `<svg class="ep-logo" viewBox="0 0 44 44" width="44" height="44" role="img" aria-label="${escHtml(s.mk)}">
+    ${grad}<rect x="1" y="1" width="42" height="42" rx="12" fill="url(#${id})"/>${inner}
+    ${s.key==='av' ? `<rect x="2.5" y="2.5" width="39" height="39" rx="10.5" fill="none" stroke="#C9A14A" stroke-width="1.2"/>` : ''}
+  </svg>`;
+}
+
 function renderStatsEpargne() {
   const comptes = getComptes().slice(1); // comptes secondaires = épargne
   if (comptes.length === 0) {
@@ -2678,36 +2714,49 @@ function renderStatsEpargne() {
     const anEntries = state.suivi.filter(e => e.annee === state.annee && suiviCompte(e) === c.id);
     const verseAn = anEntries.reduce((s,e)=>s+parseFloat(e.credit||0),0);
     const retireAn = anEntries.reduce((s,e)=>s+parseFloat(e.debit||0),0);
-    return { ...c, soldeFin, verseAn, retireAn };
+    return { ...c, soldeFin, verseAn, retireAn, st: epargneStyle(c.nom) };
   });
   const globale = lignes.reduce((s,l)=>s+l.soldeFin,0);
   const verseGlobal = lignes.reduce((s,l)=>s+l.verseAn,0);
-  const maxSolde = Math.max(...lignes.map(l=>Math.abs(l.soldeFin)),1);
 
   return `
-  <div class="stats-wrap">
-    <div class="solde-card" style="margin:0 16px 14px">
-      <div class="solde-label">💰 Épargne globale — ${MOIS_FR[state.mois]} ${state.annee}</div>
-      <div class="solde-amount ${globale>=0?'positive':'negative'}">${fmt(globale)}</div>
-      <div class="solde-sub">
-        <div class="solde-sub-item"><div class="label">↑ Versé en ${state.annee}</div><div class="value">${fmt(verseGlobal)}</div></div>
-        <div class="solde-sub-item"><div class="label">Comptes</div><div class="value">${lignes.length}</div></div>
+  <div class="ep-wrap">
+    <div class="ep-global">
+      <div class="ep-global-top">
+        <span class="ep-global-icon">💰</span>
+        <span class="ep-global-label">Épargne globale</span>
+        <span class="ep-global-period">${MOIS_FR[state.mois]} ${state.annee}</span>
+      </div>
+      <div class="ep-global-amount">${fmt(globale)}</div>
+      <div class="ep-global-sub">
+        <div><span>Versé en ${state.annee}</span><strong>${fmt(verseGlobal)}</strong></div>
+        <div><span>Comptes</span><strong>${lignes.length}</strong></div>
       </div>
     </div>
-    <div class="stats-section-title">Épargne par compte <span class="stats-period">${MOIS_FR[state.mois]} ${state.annee}</span></div>
-    <div class="stats-cats">
+
+    <div class="ep-section">Mes comptes d'épargne</div>
+    <div class="ep-cards">
       ${lignes.map(l => {
-        const pct = maxSolde>0 ? Math.abs(l.soldeFin)/maxSolde*100 : 0;
+        const s = l.st;
         return `
-        <div class="stats-cat-block">
-          <div class="stats-cat-header">
-            <div class="stats-cat-icon">💰</div>
-            <div class="stats-cat-info">
-              <div class="stats-cat-name">${escHtml(l.nom)}</div>
-              <div class="stats-bar-wrap"><div class="stats-bar credit" style="width:${Math.min(pct,100).toFixed(1)}%"></div></div>
-              <div class="stats-pct">Versé ${fmt(l.verseAn)} · Retiré ${fmt(l.retireAn)} en ${state.annee}</div>
+        <div class="ep-card" style="--acc:${s.accent}">
+          <div class="ep-accent" style="background:linear-gradient(180deg,${s.c1},${s.c2})"></div>
+          <div class="ep-card-in">
+            <div class="ep-card-head">
+              ${epargneLogo(s)}
+              <div class="ep-card-id">
+                <div class="ep-card-name">${escHtml(l.nom)}</div>
+                <div class="ep-card-tag" style="color:${s.accent}">${s.icon} ${s.label}</div>
+              </div>
             </div>
-            <div class="stats-cat-total ${l.soldeFin>=0?'credit':'debit'}">${fmt(l.soldeFin)}</div>
+            <div class="ep-card-solde">
+              <span class="ep-card-solde-label">Solde au ${MOIS_FR[state.mois]} ${state.annee}</span>
+              <span class="ep-card-solde-val ${l.soldeFin>=0?'pos':'neg'}">${fmt(l.soldeFin)}</span>
+            </div>
+            <div class="ep-card-foot">
+              <div class="ep-chip up"><span>↑ Versé ${state.annee}</span><strong>${fmt(l.verseAn)}</strong></div>
+              <div class="ep-chip down"><span>↓ Retiré ${state.annee}</span><strong>${fmt(l.retireAn)}</strong></div>
+            </div>
           </div>
         </div>`;
       }).join('')}
