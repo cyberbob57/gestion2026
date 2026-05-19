@@ -1657,6 +1657,7 @@ function renderParametres() {
           <input type="text" id="cheqfin-robert" value="${escHtml(state.parametres['chequier_robert_fin'] || '')}" placeholder="Dernière formule" inputmode="numeric">
           <button class="btn-small" onclick="saveChequierBornes('robert')">OK</button>
         </div>
+        <button class="btn-annul-cheque" onclick="annulerCheque('robert')">✖ Annuler la formule n° ${escHtml(getNextCheque('Chèque Robert') || '—')}</button>
       </div>
       <div class="chequier-row" style="margin-top:14px">
         <div class="chequier-label">📗 Chéquier Carméla</div>
@@ -1669,6 +1670,7 @@ function renderParametres() {
           <input type="text" id="cheqfin-carmela" value="${escHtml(state.parametres['chequier_carmela_fin'] || '')}" placeholder="Dernière formule" inputmode="numeric">
           <button class="btn-small" onclick="saveChequierBornes('carmela')">OK</button>
         </div>
+        <button class="btn-annul-cheque" onclick="annulerCheque('carmela')">✖ Annuler la formule n° ${escHtml(getNextCheque('Chèque Carméla') || '—')}</button>
       </div>
     </div>
 
@@ -1914,6 +1916,17 @@ async function saveChequierBornes(nom) {
   await setParam(`chequier_${nom}_debut`, deb);
   await setParam(`chequier_${nom}_fin`, fin);
   showToast('Plage de formules enregistrée ✓', 'success');
+}
+// Annule une formule de chèque (perdue/abîmée) → décale de 1 numéro
+async function annulerCheque(nom) {
+  const base = `chequier_${nom}`;
+  const cur = parseInt(state.parametres[base] || state.parametres[base + '_debut'] || '0', 10);
+  if (!cur) { showToast('Définissez d\'abord le n° de chèque', 'error'); return; }
+  const label = nom === 'robert' ? 'Robert' : 'Carméla';
+  if (!confirm(`Annuler la formule n° ${cur} du chéquier ${label} ?\n\nElle sera considérée comme inutilisée : le prochain chèque passera au n° ${cur + 1}.`)) return;
+  await setParam(base, String(cur + 1));
+  showToast(`Formule n° ${cur} annulée — prochain : ${cur + 1}`, 'success');
+  navigate('parametres');
 }
 
 function autoFillCheque(sel) {
@@ -2241,9 +2254,9 @@ function getMoyensPaiement() {
   try { return JSON.parse(state.parametres['moyens_paiement'] || '[]'); } catch { return []; }
 }
 function getNextCheque(type) {
-  const isRobert = type.includes('Robert');
-  const key = isRobert ? 'chequier_robert' : 'chequier_carmela';
-  return state.parametres[key] || '';
+  const base = type.includes('Robert') ? 'chequier_robert' : 'chequier_carmela';
+  // Prochain n° explicite, sinon on démarre sur la 1ère formule en possession
+  return state.parametres[base] || state.parametres[base + '_debut'] || '';
 }
 async function setParam(cle, valeur) {
   await sb.from('parametres').upsert({ cle, valeur }, { onConflict: 'cle' });

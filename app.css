@@ -1730,3 +1730,6 @@ a { color: var(--primary-mid); }
 
 .chequier-bornes { display:flex; gap:8px; margin-top:8px; }
 .chequier-bornes input { flex:1; min-width:0; padding:9px 11px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; background:var(--card); color:var(--text); outline:none; }
+
+.btn-annul-cheque { margin-top:8px; width:100%; padding:9px; border-radius:10px; font-size:13px; font-weight:700; background:var(--debit-bg); color:var(--debit); border:1.5px solid #FECACA; }
+.btn-annul-cheque:active { transform:scale(.98); }
