@@ -1167,8 +1167,8 @@ function bindStats() {
   const cv = document.getElementById('stats-donut');
   if (!cv || typeof Chart === 'undefined') return;
   const entries = (window._statsView === 'annuel')
-    ? state.suivi.filter(e => e.annee === state.annee)
-    : state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee);
+    ? state.suivi.filter(e => e.annee === state.annee && !e.source_id)
+    : state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee && !e.source_id);
   const by = {};
   entries.forEach(e => {
     const d = parseFloat(e.debit || 0);
@@ -2758,18 +2758,23 @@ function statsContent(totalDebit, totalCredit, sortD, sortC, period) {
   </div>`;
 }
 
+// Exclut les virements automatiques (crédits miroir = transferts internes)
+function statsBase() {
+  return state.suivi.filter(e => !e.source_id);
+}
+
 function renderStatsMensuel() {
-  const entries = state.suivi.filter(e => e.mois===state.mois+1 && e.annee===state.annee);
+  const entries = statsBase().filter(e => e.mois===state.mois+1 && e.annee===state.annee);
   const {totalDebit,totalCredit,sortD,sortC} = getStatsData(entries);
   return statsContent(totalDebit, totalCredit, sortD, sortC, `${MOIS_FR[state.mois]} ${state.annee}`);
 }
 
 function renderStatsAnnuel() {
-  const entries = state.suivi.filter(e => e.annee===state.annee);
+  const entries = statsBase().filter(e => e.annee===state.annee);
   const {totalDebit,totalCredit,sortD,sortC} = getStatsData(entries);
   // Tableau mensuel par catégorie principale
   const byMois = Array.from({length:12},(_,i)=>{
-    const m = state.suivi.filter(e=>e.annee===state.annee && e.mois===i+1);
+    const m = statsBase().filter(e=>e.annee===state.annee && e.mois===i+1);
     const d = m.reduce((s,e)=>s+parseFloat(e.debit||0),0);
     const c = m.reduce((s,e)=>s+parseFloat(e.credit||0),0);
     return {d,c};
