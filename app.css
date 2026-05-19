@@ -1759,8 +1759,8 @@ a { color: var(--primary-mid); }
 .ep-global-amount { font-size:34px; font-weight:800; letter-spacing:-.5px; margin:10px 0 14px; }
 .ep-global-sub { display:flex; gap:10px; }
 .ep-global-sub div { flex:1; background:rgba(255,255,255,.14); border-radius:12px; padding:9px 12px; }
-.ep-global-sub span { display:block; font-size:11px; opacity:.85; }
-.ep-global-sub strong { font-size:15px; font-weight:700; }
+.ep-global-sub span { display:block; font-size:11px; opacity:.85; margin-bottom:5px; }
+.ep-global-sub strong { font-size:16px; font-weight:800; }
 
 .ep-section { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--text-muted); margin:4px 2px 12px; }
 .ep-cards { display:flex; flex-direction:column; gap:14px; }
@@ -1773,6 +1773,9 @@ a { color: var(--primary-mid); }
 .ep-accent { width:6px; flex-shrink:0; }
 .ep-card-in { flex:1; padding:16px 18px; min-width:0; }
 .ep-card-head { display:flex; align-items:center; gap:13px; }
+.ep-bank { flex-shrink:0; margin-left:auto; display:flex; align-items:center; }
+.ep-bank img { max-height:30px; max-width:78px; object-fit:contain; background:#fff; border-radius:6px; padding:3px 5px; box-shadow:0 1px 4px rgba(0,0,0,.12); }
+.ep-bank-mk { flex-shrink:0; margin-left:auto; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:900; box-shadow:0 2px 6px rgba(0,0,0,.18); }
 .ep-logo { flex-shrink:0; border-radius:12px; box-shadow:0 4px 10px rgba(0,0,0,.18); }
 .ep-card-id { min-width:0; }
 .ep-card-name { font-size:16px; font-weight:800; color:var(--text); letter-spacing:-.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -1783,9 +1786,9 @@ a { color: var(--primary-mid); }
 .ep-card-solde-val.pos { color:var(--text); }
 .ep-card-solde-val.neg { color:var(--debit); }
 .ep-card-foot { display:flex; gap:10px; }
-.ep-chip { flex:1; border-radius:12px; padding:8px 12px; background:var(--bg); }
-.ep-chip span { display:block; font-size:10.5px; color:var(--text-muted); font-weight:600; }
-.ep-chip strong { font-size:14px; font-weight:700; color:var(--text); }
+.ep-chip { flex:1; border-radius:12px; padding:10px 14px; background:var(--bg); display:flex; flex-direction:column; }
+.ep-chip span { display:block; font-size:10.5px; color:var(--text-muted); font-weight:600; margin-bottom:6px; }
+.ep-chip strong { font-size:15px; font-weight:800; color:var(--text); }
 .ep-chip.up strong { color:var(--credit); }
 .ep-chip.down strong { color:var(--debit); }
 @media (prefers-color-scheme: dark) {

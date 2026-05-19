@@ -188,6 +188,13 @@ async function supprimerCompte(id) {
 function getBanqueLogo() {
   return (state.parametres && state.parametres['banque_logo']) || '';
 }
+// Logo compact de la banque (image importée sinon pastille initiales)
+function bankMiniHTML() {
+  const logo = getBanqueLogo();
+  if (logo) return `<span class="ep-bank"><img src="${logo}" alt="Banque"></span>`;
+  const b = BANKS[getBanque()] || BANKS.lbp;
+  return `<span class="ep-bank-mk" style="background:${b.mkBg};color:${b.mkFg}">${escHtml(b.mk)}</span>`;
+}
 function bankBadgeHTML(key) {
   const logo = getBanqueLogo();
   if (logo) {
@@ -2748,6 +2755,7 @@ function renderStatsEpargne() {
                 <div class="ep-card-name">${escHtml(l.nom)}</div>
                 <div class="ep-card-tag" style="color:${s.accent}">${s.icon} ${s.label}</div>
               </div>
+              ${bankMiniHTML()}
             </div>
             <div class="ep-card-solde">
               <span class="ep-card-solde-label">Solde au ${MOIS_FR[state.mois]} ${state.annee}</span>
