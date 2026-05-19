@@ -1727,3 +1727,6 @@ a { color: var(--primary-mid); }
 
 .compte-actions { display:flex; align-items:center; gap:8px; }
 .compte-actions .btn-icon { font-size:14px; }
+
+.chequier-bornes { display:flex; gap:8px; margin-top:8px; }
+.chequier-bornes input { flex:1; min-width:0; padding:9px 11px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; background:var(--card); color:var(--text); outline:none; }

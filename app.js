@@ -1652,12 +1652,22 @@ function renderParametres() {
           <input type="text" id="cheq-robert" value="${escHtml(state.parametres['chequier_robert'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
           <button class="btn-small" onclick="saveChequier('robert')">OK</button>
         </div>
+        <div class="chequier-bornes">
+          <input type="text" id="cheqdeb-robert" value="${escHtml(state.parametres['chequier_robert_debut'] || '')}" placeholder="1ère formule en ma possession" inputmode="numeric">
+          <input type="text" id="cheqfin-robert" value="${escHtml(state.parametres['chequier_robert_fin'] || '')}" placeholder="Dernière formule" inputmode="numeric">
+          <button class="btn-small" onclick="saveChequierBornes('robert')">OK</button>
+        </div>
       </div>
-      <div class="chequier-row" style="margin-top:12px">
+      <div class="chequier-row" style="margin-top:14px">
         <div class="chequier-label">📗 Chéquier Carméla</div>
         <div class="chip-input-row" style="margin:4px 0 0 0">
           <input type="text" id="cheq-carmela" value="${escHtml(state.parametres['chequier_carmela'] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
           <button class="btn-small" onclick="saveChequier('carmela')">OK</button>
+        </div>
+        <div class="chequier-bornes">
+          <input type="text" id="cheqdeb-carmela" value="${escHtml(state.parametres['chequier_carmela_debut'] || '')}" placeholder="1ère formule en ma possession" inputmode="numeric">
+          <input type="text" id="cheqfin-carmela" value="${escHtml(state.parametres['chequier_carmela_fin'] || '')}" placeholder="Dernière formule" inputmode="numeric">
+          <button class="btn-small" onclick="saveChequierBornes('carmela')">OK</button>
         </div>
       </div>
     </div>
@@ -1897,6 +1907,13 @@ async function saveChequier(nom) {
   const cle = nom === 'robert' ? 'chequier_robert' : 'chequier_carmela';
   await setParam(cle, val);
   showToast('Numéro de chéquier enregistré ✓', 'success');
+}
+async function saveChequierBornes(nom) {
+  const deb = (document.getElementById(`cheqdeb-${nom}`)?.value || '').trim();
+  const fin = (document.getElementById(`cheqfin-${nom}`)?.value || '').trim();
+  await setParam(`chequier_${nom}_debut`, deb);
+  await setParam(`chequier_${nom}_fin`, fin);
+  showToast('Plage de formules enregistrée ✓', 'success');
 }
 
 function autoFillCheque(sel) {
