@@ -2638,13 +2638,76 @@ async function init() {
 // STATISTIQUES
 // ═══════════════════════════════════════════════════════
 function renderStats() {
+  const section = window._statsSection || 'courant';
+  const secTabs = `
+  <div class="mensu-tabs stats-section-tabs">
+    <button class="mensu-tab${section==='courant'?' active':''}" onclick="window._statsSection='courant'; render()">💳 Compte courant</button>
+    <button class="mensu-tab${section==='epargne'?' active':''}" onclick="window._statsSection='epargne'; render()">💰 Épargne</button>
+  </div>`;
+  if (section === 'epargne') return secTabs + renderStatsEpargne();
   const statsView = window._statsView || 'mensuel';
   const tabs = `
   <div class="mensu-tabs">
     <button class="mensu-tab${statsView==='mensuel'?' active':''}" onclick="window._statsView='mensuel'; render()">📊 Mensuel</button>
     <button class="mensu-tab${statsView==='annuel'?' active':''}" onclick="window._statsView='annuel'; render()">📆 Annuel</button>
   </div>`;
-  return tabs + (statsView === 'annuel' ? renderStatsAnnuel() : renderStatsMensuel());
+  return secTabs + tabs + (statsView === 'annuel' ? renderStatsAnnuel() : renderStatsMensuel());
+}
+
+// Solde courant (fin du mois affiché) d'un compte donné
+function soldeCompteFin(compteId) {
+  const dep = getSoldeDepart(state.mois, state.annee, compteId);
+  const m = state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee && suiviCompte(e) === compteId);
+  const c = m.reduce((s,e)=>s+parseFloat(e.credit||0),0);
+  const d = m.reduce((s,e)=>s+parseFloat(e.debit ||0),0);
+  return dep + c - d;
+}
+
+function renderStatsEpargne() {
+  const comptes = getComptes().slice(1); // comptes secondaires = épargne
+  if (comptes.length === 0) {
+    return `<div class="stats-empty">Aucun compte d'épargne. Créez-en un dans Paramètres → Comptes bancaires.</div>`;
+  }
+  const lignes = comptes.map(c => {
+    const soldeFin = soldeCompteFin(c.id);
+    const anEntries = state.suivi.filter(e => e.annee === state.annee && suiviCompte(e) === c.id);
+    const verseAn = anEntries.reduce((s,e)=>s+parseFloat(e.credit||0),0);
+    const retireAn = anEntries.reduce((s,e)=>s+parseFloat(e.debit||0),0);
+    return { ...c, soldeFin, verseAn, retireAn };
+  });
+  const globale = lignes.reduce((s,l)=>s+l.soldeFin,0);
+  const verseGlobal = lignes.reduce((s,l)=>s+l.verseAn,0);
+  const maxSolde = Math.max(...lignes.map(l=>Math.abs(l.soldeFin)),1);
+
+  return `
+  <div class="stats-wrap">
+    <div class="solde-card" style="margin:0 16px 14px">
+      <div class="solde-label">💰 Épargne globale — ${MOIS_FR[state.mois]} ${state.annee}</div>
+      <div class="solde-amount ${globale>=0?'positive':'negative'}">${fmt(globale)}</div>
+      <div class="solde-sub">
+        <div class="solde-sub-item"><div class="label">↑ Versé en ${state.annee}</div><div class="value">${fmt(verseGlobal)}</div></div>
+        <div class="solde-sub-item"><div class="label">Comptes</div><div class="value">${lignes.length}</div></div>
+      </div>
+    </div>
+    <div class="stats-section-title">Épargne par compte <span class="stats-period">${MOIS_FR[state.mois]} ${state.annee}</span></div>
+    <div class="stats-cats">
+      ${lignes.map(l => {
+        const pct = maxSolde>0 ? Math.abs(l.soldeFin)/maxSolde*100 : 0;
+        return `
+        <div class="stats-cat-block">
+          <div class="stats-cat-header">
+            <div class="stats-cat-icon">💰</div>
+            <div class="stats-cat-info">
+              <div class="stats-cat-name">${escHtml(l.nom)}</div>
+              <div class="stats-bar-wrap"><div class="stats-bar credit" style="width:${Math.min(pct,100).toFixed(1)}%"></div></div>
+              <div class="stats-pct">Versé ${fmt(l.verseAn)} · Retiré ${fmt(l.retireAn)} en ${state.annee}</div>
+            </div>
+            <div class="stats-cat-total ${l.soldeFin>=0?'credit':'debit'}">${fmt(l.soldeFin)}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
 }
 
 function getStatsData(entries) {
