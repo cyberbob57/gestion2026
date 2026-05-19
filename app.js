@@ -565,6 +565,28 @@ function renderDashboard() {
     </div>
   </div>
 
+  ${(() => {
+    const cour = soldeCompteFin('courant');
+    const eps = getComptes().slice(1).map(c => ({ ...c, sf: soldeCompteFin(c.id) }));
+    const epTot = eps.reduce((s,e)=>s+e.sf,0);
+    const patri = cour + epTot;
+    return `
+    <div class="patri-card" onclick="window._statsSection='epargne'; navigate('stats')">
+      <div class="patri-head">
+        <span class="patri-title">💼 Patrimoine total</span>
+        <span class="patri-period">${MOIS_FR[state.mois]} ${state.annee}</span>
+      </div>
+      <div class="patri-amount">${fmt(patri)}</div>
+      <div class="patri-split">
+        <div class="patri-seg"><span>Compte courant</span><strong>${fmt(cour)}</strong></div>
+        <div class="patri-seg ep"><span>Épargne (${eps.length})</span><strong>${fmt(epTot)}</strong></div>
+      </div>
+      ${eps.length ? `<div class="patri-list">
+        ${eps.map(e => { const st=epargneStyle(e.nom); return `<div class="patri-line"><span class="patri-dot" style="background:${st.accent}"></span><span class="patri-nom">${escHtml(e.nom)}</span><span class="patri-val">${fmt(e.sf)}</span></div>`; }).join('')}
+      </div>` : ''}
+    </div>` ;
+  })()}
+
   <div class="card gauge-card">
     <div class="card-title">Budget consommé — ${MOIS_FR[state.mois]}</div>
     <div class="gauge-wrap">
@@ -1024,7 +1046,7 @@ function renderSuivi() {
       ${bankMiniHTML()}
     </div>`;
   })()}
-  <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}">
+  <div class="rapprochement-card${isEquilibre ? ' equilibre' : ''}"${getCompteActif()!=='courant' ? ` style="background:linear-gradient(135deg,${epargneStyle(nomCompteActif()).c1},${epargneStyle(nomCompteActif()).c2})"` : ''}>
     <div class="rapp-title">🏦 Rapprochement bancaire</div>
     ${bankBadgeHTML(getBanque())}
     <div class="rapp-bank-big" onclick="showSoldeBancaire()">
