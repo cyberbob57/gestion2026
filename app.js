@@ -92,6 +92,41 @@ async function setSuiviTitre() {
   navigate('parametres');
 }
 
+// ── Comptes multiples ──────────────────────────────────
+function suiviCompte(e) { return (e && e.compte) || 'courant'; }
+function getComptes() {
+  let s = [];
+  try { s = JSON.parse(state.parametres['comptes'] || '[]'); if (!Array.isArray(s)) s = []; } catch { s = []; }
+  return [{ id: 'courant', nom: 'Compte courant' }, ...s];
+}
+function getCompteActif() { return state.compteActif || 'courant'; }
+function nomCompteActif() {
+  const c = getComptes().find(x => x.id === getCompteActif());
+  return c ? c.nom : 'Compte courant';
+}
+function setCompteActif(id) {
+  state.compteActif = id;
+  localStorage.setItem('compte_actif', id);
+  render();
+}
+async function ajouterCompte() {
+  const nom = (document.getElementById('new-compte')?.value || '').trim();
+  if (!nom) return;
+  const s = getComptes().slice(1);
+  s.push({ id: 'c' + Date.now().toString(36), nom });
+  await setParam('comptes', JSON.stringify(s));
+  showToast('Compte ajouté ✓', 'success');
+  navigate('parametres');
+}
+async function supprimerCompte(id) {
+  if (!confirm('Supprimer ce compte ? Ses opérations ne seront plus visibles (non supprimées de la base).')) return;
+  const s = getComptes().slice(1).filter(c => c.id !== id);
+  await setParam('comptes', JSON.stringify(s));
+  if (state.compteActif === id) { state.compteActif = 'courant'; localStorage.setItem('compte_actif', 'courant'); }
+  showToast('Compte supprimé');
+  navigate('parametres');
+}
+
 function getBanqueLogo() {
   return (state.parametres && state.parametres['banque_logo']) || '';
 }
@@ -263,6 +298,7 @@ const state = {
   suivi: [],
   soldes: [],
   parametres: {},
+  compteActif: localStorage.getItem('compte_actif') || 'courant',
   sbUrl: localStorage.getItem('sb_url') || 'https://tzmimukdbnxciiywefgf.supabase.co',
   sbKey: localStorage.getItem('sb_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6bWltdWtkYm54Y2lpeXdlZmdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTg5NjQsImV4cCI6MjA5NDQ5NDk2NH0.G8nFX0h6qoF_HvOVhaIVQS8GhzbZjddwyBnDnaPFolE',
   connected: false,
@@ -816,23 +852,30 @@ function renderJournal() {
 // ═══════════════════════════════════════════════════════
 // SUIVI MENSUEL
 // ═══════════════════════════════════════════════════════
-function getSoldeDepart(mois, annee) {
-  const s = state.soldes.find(x => x.mois === (mois + 1) && x.annee === annee);
-  if (s) return parseFloat(s.solde);
-  // No explicit entry → auto-compute from previous month's end balance
+function getSoldeDepart(mois, annee, compte) {
+  compte = compte || getCompteActif();
+  if (compte === 'courant') {
+    const s = state.soldes.find(x => x.mois === (mois + 1) && x.annee === annee);
+    if (s) return parseFloat(s.solde);
+  } else {
+    const k = `report_${compte}_${annee}_${String(mois + 1).padStart(2,'0')}`;
+    if (state.parametres[k] != null && state.parametres[k] !== '') return parseFloat(state.parametres[k]);
+  }
+  // Pas d'entrée explicite → calcul depuis le solde de fin du mois précédent
   let pm = mois - 1, pa = annee;
   if (pm < 0) { pm = 11; pa--; }
-  if (pa < 2025) return 0; // base case: stop recursion before year 2025
-  const prevDepart = getSoldeDepart(pm, pa);
-  const prevEntries = state.suivi.filter(e => e.mois === (pm + 1) && e.annee === pa);
+  if (pa < 2025) return 0; // base : stoppe la récursion avant 2025
+  const prevDepart = getSoldeDepart(pm, pa, compte);
+  const prevEntries = state.suivi.filter(e => e.mois === (pm + 1) && e.annee === pa && suiviCompte(e) === compte);
   const prevD = prevEntries.reduce((acc, e) => acc + parseFloat(e.debit  || 0), 0);
   const prevC = prevEntries.reduce((acc, e) => acc + parseFloat(e.credit || 0), 0);
   return prevDepart + prevC - prevD;
 }
 
 function getSuiviMois() {
+  const compte = getCompteActif();
   return state.suivi
-    .filter(s => s.mois === (state.mois + 1) && s.annee === state.annee)
+    .filter(s => s.mois === (state.mois + 1) && s.annee === state.annee && suiviCompte(s) === compte)
     .sort((a, b) => (a.jour || 0) - (b.jour || 0) || (a.ordre || 0) - (b.ordre || 0));
 }
 
@@ -882,6 +925,9 @@ function renderSuivi() {
   const isFiltered = q !== '' || filt !== 'tous';
 
   return `
+  <div class="compte-selector">
+    ${getComptes().map(c => `<button class="compte-chip${c.id===getCompteActif()?' active':''}" onclick="setCompteActif('${c.id}')">${escHtml(c.nom)}</button>`).join('')}
+  </div>
   <div class="suivi-infobar">
     <div class="suivi-info-item clickable" onclick="showSoldeDepart()" title="Cliquer pour modifier">
       <div class="sii-label">Report</div>
@@ -1088,10 +1134,12 @@ async function inscrireMensualisations() {
   const toInsert = state.mensualisations.filter(m => m[mk] != null);
   if (toInsert.length === 0) { showToast('Aucune mensualisation pour ce mois', 'error'); return; }
 
-  const existing = state.suivi.filter(s => s.mois === mois && s.annee === annee && s.is_mensualisation);
+  const compte = getCompteActif();
+  const existing = state.suivi.filter(s => s.mois === mois && s.annee === annee && s.is_mensualisation && suiviCompte(s) === compte);
   if (existing.length > 0) {
-    if (!confirm(`Remplacer les ${existing.length} mensualisations déjà inscrites ?`)) return;
-    await sb.from('suivi_mensuel').delete().eq('mois', mois).eq('annee', annee).eq('is_mensualisation', true);
+    if (!confirm(`Remplacer les ${existing.length} mensualisations déjà inscrites (${nomCompteActif()}) ?`)) return;
+    const ids = existing.map(s => s.id);
+    await sb.from('suivi_mensuel').delete().in('id', ids);
   }
 
   const rows = toInsert.map((m, i) => ({
@@ -1104,6 +1152,7 @@ async function inscrireMensualisations() {
     credit: m.operation === 'Crédit' ? parseFloat(m[mk]) : null,
     debit:  m.operation === 'Débit'  ? parseFloat(m[mk]) : null,
     is_mensualisation: true,
+    compte,
     ordre: i,
   }));
 
@@ -1120,7 +1169,7 @@ function showSoldeDepart() {
   const current = getSoldeDepart(state.mois, state.annee);
   openModal(`
   <div class="modal-handle"></div>
-  <div class="modal-title">Solde de report — ${MOIS_FR[state.mois]} ${state.annee}</div>
+  <div class="modal-title">Solde de report — ${nomCompteActif()} — ${MOIS_FR[state.mois]} ${state.annee}</div>
   <div class="modal-form" id="solde-form">
     <div class="form-group">
       <label>Solde de report (€)</label>
@@ -1138,9 +1187,16 @@ async function saveSoldeDepart() {
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
   const mois = state.mois + 1;
   const annee = state.annee;
+  const compte = getCompteActif();
   setSyncing(true);
-  const { error } = await sb.from('soldes_depart')
-    .upsert({ annee, mois, solde: val }, { onConflict: 'annee,mois' });
+  let error;
+  if (compte === 'courant') {
+    ({ error } = await sb.from('soldes_depart')
+      .upsert({ annee, mois, solde: val }, { onConflict: 'annee,mois' }));
+  } else {
+    const k = `report_${compte}_${annee}_${String(mois).padStart(2,'0')}`;
+    ({ error } = await sb.from('parametres').upsert({ cle: k, valeur: String(val) }, { onConflict: 'cle' }));
+  }
   setSyncing(false);
   if (error) { showToast('Erreur : ' + error.message, 'error'); return; }
   showToast('Solde de report enregistré', 'success');
@@ -1148,8 +1204,11 @@ async function saveSoldeDepart() {
   await loadData();
 }
 
-function getSoldeBancaire(mois, annee) {
-  const key = `solde_banque_${annee}_${String(mois + 1).padStart(2,'0')}`;
+function getSoldeBancaire(mois, annee, compte) {
+  compte = compte || getCompteActif();
+  const key = compte === 'courant'
+    ? `solde_banque_${annee}_${String(mois + 1).padStart(2,'0')}`
+    : `banque_${compte}_${annee}_${String(mois + 1).padStart(2,'0')}`;
   return parseFloat(state.parametres[key] || 'NaN');
 }
 
@@ -1157,7 +1216,7 @@ function showSoldeBancaire() {
   const current = getSoldeBancaire(state.mois, state.annee);
   openModal(`
   <div class="modal-handle"></div>
-  <div class="modal-title">Solde bancaire réel — ${MOIS_FR[state.mois]} ${state.annee}</div>
+  <div class="modal-title">Solde bancaire réel — ${nomCompteActif()} — ${MOIS_FR[state.mois]} ${state.annee}</div>
   <div class="modal-form" id="solde-banque-form">
     <div class="form-group">
       <label>Solde affiché sur votre relevé bancaire (€)</label>
@@ -1173,7 +1232,10 @@ function showSoldeBancaire() {
 async function saveSoldeBancaire() {
   const val = parseFloat(document.getElementById('solde-banque-input').value);
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
-  const key = `solde_banque_${state.annee}_${String(state.mois + 1).padStart(2,'0')}`;
+  const c = getCompteActif();
+  const key = c === 'courant'
+    ? `solde_banque_${state.annee}_${String(state.mois + 1).padStart(2,'0')}`
+    : `banque_${c}_${state.annee}_${String(state.mois + 1).padStart(2,'0')}`;
   await setParam(key, String(val));
   closeModal();
   showToast('Solde bancaire enregistré ✓', 'success');
@@ -1182,11 +1244,13 @@ async function saveSoldeBancaire() {
 
 async function purgerMois() {
   const moisFR = MOIS_FR[state.mois];
-  if (!confirm(`⚠️ Supprimer TOUTES les opérations de ${moisFR} ${state.annee} ?\n\nCette action est irréversible.`)) return;
+  const ids = getSuiviMois().map(e => e.id);
+  if (ids.length === 0) { showToast('Aucune opération à effacer ce mois', 'error'); return; }
+  if (!confirm(`⚠️ Supprimer les ${ids.length} opérations de ${moisFR} ${state.annee} — ${nomCompteActif()} ?\n\nCette action est irréversible.`)) return;
   setSyncing(true);
-  await sb.from('suivi_mensuel').delete().eq('mois', state.mois + 1).eq('annee', state.annee);
+  await sb.from('suivi_mensuel').delete().in('id', ids);
   setSyncing(false);
-  showToast(`Données de ${moisFR} effacées`, 'success');
+  showToast(`Données de ${moisFR} effacées (${nomCompteActif()})`, 'success');
   await loadData();
 }
 
@@ -1305,6 +1369,7 @@ async function saveSuiviEntry(id) {
     data.annee = state.annee;
     data.mois  = state.mois + 1;
     data.is_mensualisation = false;
+    data.compte = getCompteActif();
   }
   setSyncing(true);
   let err;
@@ -1460,6 +1525,20 @@ function renderParametres() {
       <div class="chip-input-row" style="margin-top:8px">
         <input type="text" id="new-mp" placeholder="Nouveau moyen de paiement…">
         <button class="btn-small" onclick="addMoyenPaiement()">Ajouter</button>
+      </div>
+    </div>
+
+    <h3>Comptes bancaires</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="sub">Gérez vos comptes (Livret, Épargne…). Chaque compte a son propre suivi journalier et son propre rapprochement. Le compte courant existe toujours.</div>
+      </div>
+      <div class="compte-list">
+        ${getComptes().map(c => `<div class="compte-item"><span>${c.id==='courant'?'🏦':'💰'} ${escHtml(c.nom)}</span>${c.id==='courant'?'<span class="sec-empty" style="padding:0">principal</span>':`<button class="btn-icon danger" onclick="supprimerCompte('${c.id}')" title="Supprimer">×</button>`}</div>`).join('')}
+      </div>
+      <div class="chip-input-row" style="margin-top:8px">
+        <input type="text" id="new-compte" placeholder="Nouveau compte (ex : Livret A)…">
+        <button class="btn-small" onclick="ajouterCompte()">Ajouter</button>
       </div>
     </div>
 
@@ -2184,7 +2263,7 @@ function exportSuiviPDF() {
     .pos{color:#059669}.neg{color:#DC2626}
     @media print{body{padding:0}@page{margin:14mm}}
   </style></head><body>
-    <h1>${escHtml(getSuiviTitre())} — ${MOIS_FR[state.mois]} ${state.annee}</h1>
+    <h1>${escHtml(getSuiviTitre())} — ${escHtml(nomCompteActif())} — ${MOIS_FR[state.mois]} ${state.annee}</h1>
     <div class="sub">Édité le ${new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})}</div>
     <div class="recap">
       <div class="box"><div class="l">Report</div><div class="v ${soldeDepart>=0?'pos':'neg'}">${fmt(soldeDepart)}</div></div>

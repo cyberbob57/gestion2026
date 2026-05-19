@@ -1716,3 +1716,11 @@ a { color: var(--primary-mid); }
 .pp-svg { vertical-align: middle; display: inline-block; border-radius: 5px; }
 .mp-ico .pp-svg { width: 30px; height: 22px; }
 .journal-cat-icon .pp-svg { width: 32px; height: 24px; }
+
+/* ── Sélecteur de compte ───────────────────────────────── */
+.compte-selector { display:flex; gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding:12px 16px 4px; }
+.compte-chip { flex-shrink:0; padding:8px 16px; border-radius:999px; font-size:13px; font-weight:700; background:var(--card); color:var(--text-muted); border:1.5px solid var(--border); white-space:nowrap; transition:.15s; }
+.compte-chip.active { background:linear-gradient(135deg, var(--primary-dark), var(--primary-mid)); color:#fff; border-color:transparent; }
+.compte-list { display:flex; flex-direction:column; gap:6px; margin-bottom:6px; }
+.compte-item { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:var(--primary-light); border:1px solid var(--border); border-radius:10px; font-size:14px; font-weight:600; color:var(--text); }
+@media (prefers-color-scheme: dark){ .compte-item{ background:var(--card);} }
