@@ -1167,8 +1167,8 @@ function bindStats() {
   const cv = document.getElementById('stats-donut');
   if (!cv || typeof Chart === 'undefined') return;
   const entries = (window._statsView === 'annuel')
-    ? state.suivi.filter(e => e.annee === state.annee && !e.source_id)
-    : state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee && !e.source_id);
+    ? state.suivi.filter(e => e.annee === state.annee && !e.source_id && suiviCompte(e) === 'courant')
+    : state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee && !e.source_id && suiviCompte(e) === 'courant');
   const by = {};
   entries.forEach(e => {
     const d = parseFloat(e.debit || 0);
@@ -2821,9 +2821,9 @@ function statsContent(totalDebit, totalCredit, sortD, sortC, period) {
   </div>`;
 }
 
-// Exclut les virements automatiques (crédits miroir = transferts internes)
+// Stats « Compte courant » : uniquement le compte courant, hors virements auto
 function statsBase() {
-  return state.suivi.filter(e => !e.source_id);
+  return state.suivi.filter(e => !e.source_id && suiviCompte(e) === 'courant');
 }
 
 function renderStatsMensuel() {
