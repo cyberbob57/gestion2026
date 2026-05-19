@@ -97,7 +97,24 @@ function suiviCompte(e) { return (e && e.compte) || 'courant'; }
 function getComptes() {
   let s = [];
   try { s = JSON.parse(state.parametres['comptes'] || '[]'); if (!Array.isArray(s)) s = []; } catch { s = []; }
-  return [{ id: 'courant', nom: 'Compte courant' }, ...s];
+  const nomCourant = (state.parametres && state.parametres['nom_courant']) || 'Compte courant';
+  return [{ id: 'courant', nom: nomCourant }, ...s];
+}
+async function renommerCompte(id) {
+  const c = getComptes().find(x => x.id === id);
+  if (!c) return;
+  const nv = prompt('Nouveau nom du compte :', c.nom);
+  if (nv == null) return;
+  const nom = nv.trim();
+  if (!nom) { showToast('Le nom ne peut pas être vide', 'error'); return; }
+  if (id === 'courant') {
+    await setParam('nom_courant', nom);
+  } else {
+    const s = getComptes().slice(1).map(x => x.id === id ? { ...x, nom } : x);
+    await setParam('comptes', JSON.stringify(s));
+  }
+  showToast('Compte renommé ✓', 'success');
+  navigate('parametres');
 }
 function getCompteActif() { return state.compteActif || 'courant'; }
 // Compte de destination des virements d'épargne automatiques
@@ -1608,7 +1625,7 @@ function renderParametres() {
         <div class="sub">Gérez vos comptes (Livret, Épargne…). Chaque compte a son propre suivi journalier et son propre rapprochement. Le compte courant existe toujours.</div>
       </div>
       <div class="compte-list">
-        ${getComptes().map(c => `<div class="compte-item"><span>${c.id==='courant'?'🏦':'💰'} ${escHtml(c.nom)}</span>${c.id==='courant'?'<span class="sec-empty" style="padding:0">principal</span>':`<button class="btn-icon danger" onclick="supprimerCompte('${c.id}')" title="Supprimer">×</button>`}</div>`).join('')}
+        ${getComptes().map(c => `<div class="compte-item"><span>${c.id==='courant'?'🏦':'💰'} ${escHtml(c.nom)}</span><span class="compte-actions"><button class="btn-icon" onclick="renommerCompte('${c.id}')" title="Renommer">✎</button>${c.id==='courant'?'<span class="sec-empty" style="padding:0">principal</span>':`<button class="btn-icon danger" onclick="supprimerCompte('${c.id}')" title="Supprimer">×</button>`}</span></div>`).join('')}
       </div>
       <div class="chip-input-row" style="margin-top:8px">
         <input type="text" id="new-compte" placeholder="Nouveau compte (ex : Livret A)…">
