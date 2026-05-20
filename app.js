@@ -2682,7 +2682,48 @@ function showLogin(opts = {}) {
     document.getElementById('app').appendChild(s);
   }
   s.classList.remove('hidden');
-  const mode = opts.mode === 'signup' ? 'signup' : 'login';
+  const mode = ['signup','forgot','recovery'].includes(opts.mode) ? opts.mode : 'login';
+  if (mode === 'recovery') {
+    s.innerHTML = `
+      <div class="login-card">
+        <div class="login-logo">
+          <svg viewBox="0 0 44 44"><text x="22" y="32" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="26">€</text></svg>
+        </div>
+        <h1>Nouveau mot de passe</h1>
+        <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
+        <div class="form-group">
+          <label>Nouveau mot de passe</label>
+          <input type="password" id="login-newpwd" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label>Confirmer</label>
+          <input type="password" id="login-newpwd2" autocomplete="new-password">
+        </div>
+        <div id="login-err" class="login-err hidden"></div>
+        <button class="btn-primary" onclick="doSetNewPassword()">Enregistrer →</button>
+      </div>`;
+    setTimeout(() => document.getElementById('login-newpwd')?.focus(), 50);
+    return;
+  }
+  if (mode === 'forgot') {
+    s.innerHTML = `
+      <div class="login-card">
+        <div class="login-logo">
+          <svg viewBox="0 0 44 44"><text x="22" y="32" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="26">€</text></svg>
+        </div>
+        <h1>Mot de passe oublié</h1>
+        <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="login-email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false">
+        </div>
+        <div id="login-err" class="login-err hidden"></div>
+        <button class="btn-primary" onclick="doForgotPassword()">Envoyer le lien →</button>
+        <button class="login-swap" onclick="showLogin({mode:'login'})">← Retour à la connexion</button>
+      </div>`;
+    setTimeout(() => document.getElementById('login-email')?.focus(), 50);
+    return;
+  }
   const fn = mode === 'signup' ? 'doSignup' : 'doLogin';
   const cta = mode === 'signup' ? 'Créer le compte' : 'Se connecter';
   const sub = mode === 'signup' ? 'Créez votre compte sécurisé' : 'Connectez-vous à votre espace';
@@ -2705,10 +2746,31 @@ function showLogin(opts = {}) {
       </div>
       <div id="login-err" class="login-err hidden"></div>
       <button class="btn-primary" onclick="${fn}()">${cta} →</button>
+      ${mode==='login' ? `<button class="login-swap" onclick="showLogin({mode:'forgot'})">Mot de passe oublié ?</button>` : ''}
       <button class="login-swap" onclick="showLogin({mode:'${swapTo}'})">${swap}</button>
     </div>
   `;
   setTimeout(() => document.getElementById('login-email')?.focus(), 50);
+}
+async function doForgotPassword() {
+  const email = (document.getElementById('login-email')?.value || '').trim();
+  if (!email) { loginErr('Saisissez votre email'); return; }
+  const redirect = window.location.origin + window.location.pathname + '?recovery=1';
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: redirect });
+  if (error) { loginErr(error.message || 'Erreur d\'envoi'); return; }
+  loginErr('');
+  const el = document.getElementById('login-err');
+  if (el) { el.textContent = '✉️ Email envoyé. Cliquez sur le lien reçu pour choisir un nouveau mot de passe.'; el.classList.remove('hidden'); el.style.color='var(--credit)'; el.style.background='var(--credit-bg)'; el.style.borderColor='#A7F3D0'; }
+}
+async function doSetNewPassword() {
+  const a = document.getElementById('login-newpwd')?.value || '';
+  const b = document.getElementById('login-newpwd2')?.value || '';
+  if (a.length < 6) { loginErr('Mot de passe trop court (6 caractères mini)'); return; }
+  if (a !== b)    { loginErr('Les deux mots de passe ne correspondent pas'); return; }
+  const { error } = await sb.auth.updateUser({ password: a });
+  if (error) { loginErr(error.message || 'Erreur'); return; }
+  showToast('Mot de passe mis à jour ✓', 'success');
+  await onSignedIn();
 }
 function hideLogin() {
   const s = document.getElementById('screen-login');
@@ -2795,10 +2857,16 @@ async function init() {
 
 // Aiguillage : si déjà connecté → app, sinon écran de connexion
 async function routeAuth() {
-  // Écoute les changements de session (déconnexion ou token rafraîchi)
+  // Écoute les changements de session (déconnexion, recovery, token rafraîchi)
   sb.auth.onAuthStateChange((event) => {
     if (event === 'SIGNED_OUT') showLogin();
+    if (event === 'PASSWORD_RECOVERY') showLogin({ mode: 'recovery' });
   });
+  // Retour de lien de récupération : on affiche le formulaire nouveau mot de passe
+  if (/[?#&]type=recovery/.test(window.location.hash + window.location.search) || /[?&]recovery=1/.test(window.location.search)) {
+    showLogin({ mode: 'recovery' });
+    return;
+  }
   const { data: { session } } = await sb.auth.getSession();
   if (session) await onSignedIn();
   else showLogin();
