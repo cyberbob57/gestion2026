@@ -1851,3 +1851,35 @@ a { color: var(--primary-mid); }
   box-shadow:0 4px 16px rgba(76,42,133,.35);
 }
 .cc-banner strong { font-weight:800; color:#FFE8A8; }
+
+/* ── Écran de connexion ────────────────────────────────── */
+#screen-login {
+  position:fixed; inset:0; z-index:200;
+  display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(145deg,#1E3A8A 0%,#1E40AF 45%,#2563EB 100%);
+  padding:24px;
+}
+#screen-login.hidden { display:none; }
+.login-card {
+  background:#fff; border-radius:28px; padding:36px 28px;
+  width:100%; max-width:380px; text-align:center;
+  box-shadow:0 24px 64px rgba(0,0,0,.35);
+}
+.login-logo {
+  width:72px; height:72px; margin:0 auto 18px;
+  background:linear-gradient(135deg,var(--primary-dark),var(--primary-mid));
+  border-radius:20px; display:flex; align-items:center; justify-content:center;
+  box-shadow:0 6px 20px rgba(30,64,175,.4);
+}
+.login-logo svg { width:40px; height:40px; }
+.login-card h1 { font-size:24px; font-weight:800; color:var(--primary-dark); letter-spacing:-.4px; margin-bottom:4px; }
+.login-sub { color:var(--text-muted); font-size:13px; margin-bottom:22px; }
+.login-err { color:var(--debit); background:var(--debit-bg); border:1px solid #FECACA; border-radius:10px; padding:9px 12px; font-size:13px; margin-bottom:12px; }
+.login-err.hidden { display:none; }
+#screen-login .btn-primary { margin-top:6px; }
+.login-swap { display:block; margin:14px auto 0; font-size:13px; color:var(--primary-mid); font-weight:600; background:none; border:none; }
+@media (prefers-color-scheme: dark) {
+  .login-card { background:#1E293B; }
+  .login-card h1 { color:#fff; }
+  .login-sub { color:#94A3B8; }
+}

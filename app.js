@@ -1791,6 +1791,15 @@ function renderParametres() {
       </div>
     </div>
 
+    <h3>Sécurité</h3>
+    <div class="params-item">
+      <div class="params-item-left">
+        <div class="name">🔐 Compte connecté</div>
+        <div class="sub" id="auth-email">…</div>
+      </div>
+      <button class="btn-small btn-danger" onclick="doLogout()">Se déconnecter</button>
+    </div>
+
     <h3>Connexion Supabase</h3>
     <div class="params-item">
       <div class="params-item-left">
@@ -1846,6 +1855,11 @@ function renderParametres() {
 function bindParametres() {
   const inp = document.getElementById('new-principal');
   if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addLibellePrincipal(); });
+  // Affiche l'email du compte connecté
+  sb && sb.auth && sb.auth.getUser().then(({ data }) => {
+    const el = document.getElementById('auth-email');
+    if (el) el.textContent = (data && data.user && data.user.email) || 'Non connecté';
+  });
 }
 
 function toggleLibelleBlock(id) {
@@ -2657,6 +2671,84 @@ function escHtml(s) {
 // ═══════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════
+// ── Authentification ─────────────────────────────────
+function showLogin(opts = {}) {
+  document.getElementById('screen-setup').classList.add('hidden');
+  document.getElementById('screen-app').classList.add('hidden');
+  let s = document.getElementById('screen-login');
+  if (!s) {
+    s = document.createElement('div');
+    s.id = 'screen-login';
+    document.getElementById('app').appendChild(s);
+  }
+  s.classList.remove('hidden');
+  const mode = opts.mode === 'signup' ? 'signup' : 'login';
+  const fn = mode === 'signup' ? 'doSignup' : 'doLogin';
+  const cta = mode === 'signup' ? 'Créer le compte' : 'Se connecter';
+  const sub = mode === 'signup' ? 'Créez votre compte sécurisé' : 'Connectez-vous à votre espace';
+  const swap = mode === 'signup' ? "J'ai déjà un compte" : 'Première fois ? Créer un compte';
+  const swapTo = mode === 'signup' ? 'login' : 'signup';
+  s.innerHTML = `
+    <div class="login-card">
+      <div class="login-logo">
+        <svg viewBox="0 0 44 44"><text x="22" y="32" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="26">€</text></svg>
+      </div>
+      <h1>Gestion 2026</h1>
+      <p class="login-sub">${sub}</p>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label>Mot de passe</label>
+        <input type="password" id="login-pwd" autocomplete="${mode==='signup'?'new-password':'current-password'}">
+      </div>
+      <div id="login-err" class="login-err hidden"></div>
+      <button class="btn-primary" onclick="${fn}()">${cta} →</button>
+      <button class="login-swap" onclick="showLogin({mode:'${swapTo}'})">${swap}</button>
+    </div>
+  `;
+  setTimeout(() => document.getElementById('login-email')?.focus(), 50);
+}
+function hideLogin() {
+  const s = document.getElementById('screen-login');
+  if (s) s.classList.add('hidden');
+}
+function loginErr(msg) {
+  const el = document.getElementById('login-err');
+  if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+}
+async function doLogin() {
+  const email = (document.getElementById('login-email')?.value || '').trim();
+  const pwd = document.getElementById('login-pwd')?.value || '';
+  if (!email || !pwd) { loginErr('Email et mot de passe requis'); return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password: pwd });
+  if (error) { loginErr('Identifiants invalides'); return; }
+  await onSignedIn();
+}
+async function doSignup() {
+  const email = (document.getElementById('login-email')?.value || '').trim();
+  const pwd = document.getElementById('login-pwd')?.value || '';
+  if (!email || pwd.length < 6) { loginErr('Email valide et mot de passe d\'au moins 6 caractères requis'); return; }
+  const { data, error } = await sb.auth.signUp({ email, password: pwd });
+  if (error) { loginErr(error.message || 'Erreur création de compte'); return; }
+  if (!data.session) { loginErr('Compte créé. Confirmez par email ou activez « Auto Confirm » dans Supabase Auth.'); return; }
+  await onSignedIn();
+}
+async function doLogout() {
+  if (!confirm('Se déconnecter de l\'application ?')) return;
+  await sb.auth.signOut();
+  showLogin();
+}
+async function onSignedIn() {
+  hideLogin();
+  showApp();
+  bindSwipe();
+  await loadData();
+  subscribeRealtime();
+  setTimeout(maybeAutoBackup, 1500);
+}
+
 async function init() {
   applyTheme(localStorage.getItem('theme_accent') || 'bleu');
   if ('serviceWorker' in navigator) {
@@ -2691,28 +2783,25 @@ async function init() {
   const pKey = (params.get('key') || '').trim().replace(/\s+/g, '');
   if (pUrl && pKey) {
     const ok = await initSupabase(pUrl, pKey);
-    if (ok) {
-      showApp();
-      bindSwipe();
-      await loadData();
-      subscribeRealtime();
-      setTimeout(maybeAutoBackup, 1500);
-      return;
-    }
+    if (ok) { await routeAuth(); return; }
   }
 
   if (state.sbUrl && state.sbKey) {
     const ok = await initSupabase(state.sbUrl, state.sbKey);
-    if (ok) {
-      showApp();
-      bindSwipe();
-      await loadData();
-      subscribeRealtime();
-      setTimeout(maybeAutoBackup, 1500);
-      return;
-    }
+    if (ok) { await routeAuth(); return; }
   }
   showSetup();
+}
+
+// Aiguillage : si déjà connecté → app, sinon écran de connexion
+async function routeAuth() {
+  // Écoute les changements de session (déconnexion ou token rafraîchi)
+  sb.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') showLogin();
+  });
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) await onSignedIn();
+  else showLogin();
 }
 
 // ═══════════════════════════════════════════════════════
