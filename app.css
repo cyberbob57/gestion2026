@@ -1840,3 +1840,14 @@ a { color: var(--primary-mid); }
 .ep-cards .ep-card:nth-child(4){animation-delay:.28s}
 .ep-cards .ep-card:nth-child(n+5){animation-delay:.34s}
 .ep-global { animation:epIn .42s cubic-bezier(.22,1,.36,1) both; }
+
+/* ── Bandeau d'info dynamique (compte courant) ──────────── */
+.cc-banner {
+  margin:0 16px 12px; padding:14px 18px;
+  border-radius:14px;
+  background:linear-gradient(135deg,#4C2A85,#6B3FB8);
+  color:#fff; text-align:center; line-height:1.55;
+  font-size:14px; font-weight:600;
+  box-shadow:0 4px 16px rgba(76,42,133,.35);
+}
+.cc-banner strong { font-weight:800; color:#FFE8A8; }

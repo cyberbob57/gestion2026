@@ -971,6 +971,28 @@ function getJourSemaine(jour) {
   return ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][new Date(state.annee, state.mois, jour).getDay()];
 }
 
+// Dernier solde bancaire saisi (toute année/mois confondus) pour le compte courant
+function getDernierSoldeBancaire() {
+  let best = null, bestKey = '';
+  for (const k of Object.keys(state.parametres || {})) {
+    const m = /^solde_banque_(\d{4})_(\d{2})$/.exec(k);
+    if (!m) continue;
+    const id = m[1] + '_' + m[2];
+    if (id > bestKey) {
+      const v = parseFloat(state.parametres[k]);
+      if (!isNaN(v)) { best = { val: v, annee: +m[1], mois: +m[2] }; bestKey = id; }
+    }
+  }
+  return best;
+}
+// Dernier chèque enregistré sur le compte courant (type + n°)
+function getDernierCheque() {
+  const ops = state.suivi
+    .filter(e => suiviCompte(e) === 'courant' && /chèque|cheque/i.test(e.type_operation || '') && (e.num_cheque || '').trim())
+    .sort((a,b) => (b.annee - a.annee) || ((b.mois||0) - (a.mois||0)) || ((b.jour||0) - (a.jour||0)));
+  return ops[0] || null;
+}
+
 function renderSuivi() {
   const entries     = getSuiviMois();
   const soldeDepart = getSoldeDepart(state.mois, state.annee);
@@ -1015,6 +1037,16 @@ function renderSuivi() {
   <div class="compte-selector">
     ${getComptes().map(c => `<button class="compte-chip${c.id===getCompteActif()?' active':''}" onclick="setCompteActif('${c.id}')">${escHtml(c.nom)}</button>`).join('')}
   </div>
+  ${getCompteActif()==='courant' ? (() => {
+    const dateStr = new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    const dsb = getDernierSoldeBancaire();
+    const dch = getDernierCheque();
+    const sbTxt = dsb ? `le solde au dernier relevé bancaire est de <strong>${fmt(dsb.val)}</strong>` : `aucun solde bancaire saisi pour l'instant`;
+    const chTxt = dch
+      ? `le numéro du dernier chèque enregistré est le chéquier : <strong>${escHtml(dch.type_operation)}</strong>, avec le chèque numéro : <strong>${escHtml(dch.num_cheque)}</strong>`
+      : `aucun chèque enregistré`;
+    return `<div class="cc-banner">Aujourd'hui, nous sommes le <strong>${dateStr}</strong>, ${sbTxt}, le solde budgété à la fin <strong>${MOIS_FR[state.mois]}</strong> est de <strong>${fmt(soldeFin)}</strong> et ${chTxt}.</div>`;
+  })() : ''}
   <div class="suivi-infobar">
     <div class="suivi-info-item clickable" onclick="showSoldeDepart()" title="Cliquer pour modifier">
       <div class="sii-label">Report</div>
