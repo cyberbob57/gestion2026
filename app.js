@@ -1590,7 +1590,7 @@ async function saveSuiviEntry(id) {
   const ech = {};
   form.querySelectorAll('[name]').forEach(el => {
     if (el.name === 'echeance') return; // sélecteur unique (mode édition uniquement)
-    const m = /^ech(\d)_(jour|mois|annee)$/.exec(el.name);
+    const m = /^ech(\d)_(jour|mois|annee|montant)$/.exec(el.name);
     if (m) {
       const n = m[1], key = m[2];
       ech[n] = ech[n] || {};
@@ -1624,17 +1624,24 @@ async function saveSuiviEntry(id) {
   setSyncing(true);
   let err, savedId = id;
   // Mode "Paypal en 4X — création" : on insère 4 lignes datées Éch 1/4 → Éch 4/4
+  // Chaque ligne peut avoir son propre montant (sinon reprend celui de la 1ère échéance).
   if (isPp4xCreation) {
+    const isCredit = data.credit != null;
+    const baseMontant = isCredit ? data.credit : data.debit;
     const rows = [];
     for (let n = 1; n <= 4; n++) {
       const r = { ...data, type_operation: `Paypal en 4X – Éch. ${n}/4` };
       if (n === 1) {
-        // Éch 1 utilise la date principale (déjà dans data)
+        // Éch 1 utilise la date et le montant principaux (déjà dans data)
       } else {
         const d = ech[n] || {};
         r.jour  = d.jour  ? parseInt(d.jour)  : data.jour;
         r.mois  = d.mois  ? parseInt(d.mois)  : data.mois;
         r.annee = d.annee ? parseInt(d.annee) : data.annee;
+        // Montant : champ vide → reprend la valeur de la 1ère échéance
+        const mnt = d.montant ? parseFloat(d.montant) : baseMontant;
+        if (isCredit) { r.credit = mnt; r.debit = null; }
+        else          { r.debit  = mnt; r.credit = null; }
       }
       rows.push(r);
     }
@@ -2337,12 +2344,11 @@ function echeanceGroup4X(uid, isVisible, selectedVal) {
     </select>
   </div>`;
 }
-// Mode "création" : on saisit les 4 dates d'échéances d'un coup.
-// Éch 1 = la date principale (jour/mois/année du haut du formulaire), Éch 2-4 = à choisir ci-dessous.
+// Mode "création" : on saisit les 4 dates d'échéances et éventuellement
+// un montant différent par ligne. Éch 1 = ligne du haut, Éch 2-4 = à compléter.
 function echeanceMultiGroup4X(uid, isVisible, baseJour, baseMois, baseAnnee) {
   const annees = [];
   for (let y = baseAnnee - 1; y <= baseAnnee + 2; y++) annees.push(y);
-  // Calcule des dates par défaut : +1, +2, +3 mois à partir de la date principale
   const def = (delta) => {
     if (!baseJour) return { j:'', m: baseMois || (state.mois+1), a: baseAnnee || state.annee };
     const d = new Date(baseAnnee || state.annee, (baseMois || (state.mois+1)) - 1 + delta, baseJour);
@@ -2358,11 +2364,12 @@ function echeanceMultiGroup4X(uid, isVisible, baseJour, baseMois, baseAnnee) {
       <select name="ech${n}_annee" class="ech-input ech-annee">
         ${annees.map(y => `<option value="${y}"${y===def.a?' selected':''}>${y}</option>`).join('')}
       </select>
+      <input type="number" step="0.01" name="ech${n}_montant" placeholder="Montant" class="ech-input ech-montant" title="Vide = même que la 1ère échéance">
     </div>`;
   return `
   <div class="form-group echeance-multi-grp" id="echeance-multi-grp-${uid}" style="display:${isVisible?'':'none'}">
-    <label>Dates des 4 échéances</label>
-    <div class="sub" style="font-size:11px;margin:-2px 0 6px;color:var(--text-muted)">Éch. 1/4 = la date principale en haut du formulaire. Modifiez les autres si nécessaire.</div>
+    <label>Dates et montants des 4 échéances</label>
+    <div class="sub" style="font-size:11px;margin:-2px 0 6px;color:var(--text-muted)">Éch. 1/4 utilise la date et le montant principaux du haut. Pour Éch 2-4, laissez le montant vide pour reprendre le même.</div>
     <div class="ech-row ech-row-static">
       <span class="ech-label">Éch. 1/4</span>
       <span class="ech-static" id="ech1-recap-${uid}">${baseJour||'—'} / ${MOIS_FR[(baseMois||1)-1]||'—'} / ${baseAnnee||'—'}</span>
