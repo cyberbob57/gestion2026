@@ -354,7 +354,7 @@ function carSVG(color, label) {
 // ═══════════════════════════════════════════════════════
 const now = new Date();
 const state = {
-  view: 'dashboard',
+  view: 'suivi',
   mois: now.getMonth(),
   annee: now.getFullYear(),
   mensualisations: [],
@@ -986,10 +986,16 @@ function getDernierSoldeBancaire() {
   return best;
 }
 // Dernier chèque enregistré sur le compte courant (type + n°)
+// Tri : entrée la plus récemment saisie/modifiée d'abord, puis par date d'opération.
 function getDernierCheque() {
   const ops = state.suivi
     .filter(e => suiviCompte(e) === 'courant' && /chèque|cheque/i.test(e.type_operation || '') && (e.num_cheque || '').trim())
-    .sort((a,b) => (b.annee - a.annee) || ((b.mois||0) - (a.mois||0)) || ((b.jour||0) - (a.jour||0)));
+    .sort((a,b) => {
+      const ta = a.updated_at || a.created_at || '';
+      const tb = b.updated_at || b.created_at || '';
+      if (ta && tb && ta !== tb) return tb.localeCompare(ta);
+      return (b.annee - a.annee) || ((b.mois||0) - (a.mois||0)) || ((b.jour||0) - (a.jour||0));
+    });
   return ops[0] || null;
 }
 
@@ -1103,7 +1109,12 @@ function renderSuivi() {
   </div>
 
   <div class="suivi-toolbar">
-    ${getCompteActif() === 'courant' ? `<button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>` : ''}
+    ${getCompteActif() === 'courant' ? (() => {
+      const mensuInscrites = entries.some(e => e.is_mensualisation);
+      return mensuInscrites
+        ? `<button class="btn-inscrire is-done" disabled title="Déjà inscrites pour ${MOIS_FR[state.mois]} ${state.annee}">✅ Mensualisations inscrites</button>`
+        : `<button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>`;
+    })() : ''}
     <button class="btn-pointer-tout" onclick="pointerTout()" title="Pointer toutes les opérations">✓✓</button>
     <button class="btn-add" onclick="showAddSuiviEntry()">＋ Saisir</button>
     <button class="btn-pdf" onclick="exportSuiviPDF()" title="Exporter le mois en PDF">📄</button>
@@ -1181,12 +1192,14 @@ function renderSuivi() {
             <div class="jour-num">${e.jour || '—'}</div>
           </td>
           <td class="col-libelle">
-            <div class="lib-header">
-              <span class="lib-cat-icon">${entryIcon(e)}</span>
-              <div class="lib-principal">${escHtml(e.libelle_principal || '')}</div>
+            <div class="lib-stack">
+              <div class="lib-line lib-line-1">
+                <span class="lib-cat-icon">${entryIcon(e)}</span>
+                <span class="lib-principal">${escHtml(e.libelle_principal || '')}</span>
+              </div>
+              ${e.libelle_secondaire ? `<div class="lib-line lib-line-2"><span class="lib-secondaire">${escHtml(e.libelle_secondaire)}</span></div>` : ''}
+              ${e.libelle_libre ? `<div class="lib-libre">${escHtml(e.libelle_libre)}</div>` : ''}
             </div>
-            ${e.libelle_secondaire ? `<div class="lib-secondaire">${escHtml(e.libelle_secondaire)}</div>` : ''}
-            ${e.libelle_libre ? `<div class="lib-libre">${escHtml(e.libelle_libre)}</div>` : ''}
           </td>
           <td class="col-type">${(()=>{ const {base,echeance}=parsePaypal4X(e.type_operation||''); return echeance ? `${escHtml(base)} <span class="echeance-badge">Éch.${echeance}/4</span>` : escHtml(base); })()}</td>
           <td class="col-cheque">${escHtml(e.num_cheque || '')}</td>
@@ -1321,10 +1334,12 @@ async function inscrireMensualisations() {
 
   const compte = getCompteActif();
   const existing = state.suivi.filter(s => s.mois === mois && s.annee === annee && s.is_mensualisation && suiviCompte(s) === compte);
+
+  // Si une seule mensualisation a déjà été inscrite ce mois sur ce compte, on bloque.
+  // Aucune suppression, aucune modification des lignes existantes.
   if (existing.length > 0) {
-    if (!confirm(`Remplacer les ${existing.length} mensualisations déjà inscrites (${nomCompteActif()}) ?`)) return;
-    const ids = existing.map(s => s.id);
-    await sb.from('suivi_mensuel').delete().in('id', ids);
+    showToast(`Mensualisations déjà inscrites pour ${MOIS_FR[state.mois]} ${annee} (${existing.length} ligne${existing.length>1?'s':''}) — aucune action.`, 'error');
+    return;
   }
 
   const rows = toInsert.map((m, i) => ({
@@ -1444,7 +1459,32 @@ function suiviForm(data = {}) {
   const uid = ++_libUid;
   const { base: typeBase, echeance: echeanceVal } = parsePaypal4X(data.type_operation || '');
   const isPaypal4X = typeBase === 'Paypal en 4X';
+  const isCheque  = (typeBase || '').includes('Chèque');
+  const moisVal  = data.mois  != null ? parseInt(data.mois)  : (state.mois + 1);
+  const anneeVal = data.annee != null ? parseInt(data.annee) : state.annee;
+  const anneeMin = state.annee - 2, anneeMax = state.annee + 2;
+  const anneesOpt = [];
+  for (let y = anneeMin; y <= anneeMax; y++) anneesOpt.push(y);
+  // Virement interne : compte de destination du miroir
+  const compteSrc = data.compte || getCompteActif();
+  const autresComptes = getComptes().filter(c => c.id !== compteSrc);
+  const mirror = data.id ? state.suivi.find(x => x.source_id === data.id) : null;
+  const compteDestVal = mirror ? mirror.compte : '';
   return `
+  <div class="row2">
+    <div class="form-group">
+      <label>Mois</label>
+      <select name="mois">
+        ${MOIS_FR.map((m,i) => `<option value="${i+1}"${(i+1)===moisVal?' selected':''}>${m}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Année</label>
+      <select name="annee">
+        ${anneesOpt.map(y => `<option value="${y}"${y===anneeVal?' selected':''}>${y}</option>`).join('')}
+      </select>
+    </div>
+  </div>
   <div class="row2">
     <div class="form-group">
       <label>Jour</label>
@@ -1453,6 +1493,7 @@ function suiviForm(data = {}) {
     <div class="form-group">
       <label>N° Chèque</label>
       <input type="text" name="num_cheque" value="${escHtml(data.num_cheque || '')}" placeholder="Optionnel">
+      <button type="button" class="btn-annul-inline" id="btn-annul-${uid}" onclick="annulerChequeInline(this)" style="display:${isCheque ? '' : 'none'}">✖ Annuler ce chèque</button>
     </div>
   </div>
   ${libSelects(data)}
@@ -1476,7 +1517,16 @@ function suiviForm(data = {}) {
       <label>Débit (€)</label>
       <input type="number" step="0.01" name="debit" value="${data.debit != null ? data.debit : ''}" placeholder="0,00">
     </div>
-  </div>`;
+  </div>
+  ${autresComptes.length ? `
+  <div class="form-group">
+    <label>Virement vers (autre compte)</label>
+    <select name="compte_dest">
+      <option value="">— Aucun —</option>
+      ${autresComptes.map(c => `<option value="${c.id}"${c.id===compteDestVal?' selected':''}>${escHtml(c.nom)}</option>`).join('')}
+    </select>
+    <div class="sub" style="margin-top:4px;font-size:11px;color:#888">Si renseigné, le montant débité ici sera crédité sur le compte choisi (et inversement).</div>
+  </div>` : ''}`;
 }
 
 function showAddSuiviEntry() {
@@ -1545,26 +1595,65 @@ async function saveSuiviEntry(id) {
     data.type_operation = `Paypal en 4X – Éch. ${n}/4`;
   }
   data.jour   = data.jour   ? parseInt(data.jour)    : null;
+  data.mois   = data.mois   ? parseInt(data.mois)    : (state.mois + 1);
+  data.annee  = data.annee  ? parseInt(data.annee)   : state.annee;
   data.credit = data.credit ? parseFloat(data.credit) : null;
   data.debit  = data.debit  ? parseFloat(data.debit)  : null;
   if (data.credit == null && data.debit == null) {
     showToast('Indiquez un crédit ou un débit', 'error'); return;
   }
+  // Compte destinataire (virement interne) — extrait avant l'envoi en base
+  const compteDest = data.compte_dest || '';
+  delete data.compte_dest;
   if (!id) {
-    data.annee = state.annee;
-    data.mois  = state.mois + 1;
     data.is_mensualisation = false;
     data.compte = getCompteActif();
   }
   setSyncing(true);
-  let err;
+  let err, savedId = id;
   if (id) {
     ({ error: err } = await sb.from('suivi_mensuel').update(data).eq('id', id));
   } else {
-    ({ error: err } = await sb.from('suivi_mensuel').insert(data));
+    const ins = await sb.from('suivi_mensuel').insert(data).select().single();
+    err = ins.error;
+    if (ins.data) savedId = ins.data.id;
+  }
+  // Gestion du miroir (virement interne entre comptes)
+  if (!err && savedId) {
+    const compteSrc = data.compte || (state.suivi.find(x => x.id === savedId) || {}).compte || 'courant';
+    const existingMirror = state.suivi.find(x => x.source_id === savedId);
+    if (compteDest && compteDest !== compteSrc) {
+      const srcNom = (getComptes().find(c => c.id === compteSrc) || {}).nom || 'compte source';
+      const dstNom = (getComptes().find(c => c.id === compteDest) || {}).nom || 'compte';
+      const mirrorPayload = {
+        annee: data.annee,
+        mois:  data.mois,
+        jour:  data.jour,
+        libelle_principal: data.libelle_principal || 'Virement',
+        libelle_secondaire: data.libelle_secondaire || null,
+        libelle_libre: data.debit
+          ? `Versement depuis ${srcNom}`
+          : `Versement vers ${srcNom}`,
+        type_operation: data.type_operation || 'Virement',
+        credit: data.debit,
+        debit:  data.credit,
+        compte: compteDest,
+        source_id: savedId,
+        is_mensualisation: false,
+      };
+      if (existingMirror) {
+        await sb.from('suivi_mensuel').update(mirrorPayload).eq('id', existingMirror.id);
+      } else {
+        await sb.from('suivi_mensuel').insert(mirrorPayload);
+      }
+    } else if (existingMirror) {
+      await sb.from('suivi_mensuel').delete().eq('id', existingMirror.id);
+    }
   }
   setSyncing(false);
   if (err) { showToast('Erreur : ' + err.message, 'error'); return; }
+  // Enrichit automatiquement la liste des libellés si une saisie libre apparaît
+  await ensureLibelleExists(data.libelle_principal, data.libelle_secondaire);
   showToast(id ? 'Opération mise à jour' : 'Opération ajoutée', 'success');
   closeModal();
   // Mettre à jour le prochain numéro de chèque
@@ -1572,7 +1661,8 @@ async function saveSuiviEntry(id) {
   const savedNum = data.num_cheque;
   if (savedType.includes('Chèque') && savedNum && /^\d+$/.test(savedNum)) {
     const cle = savedType.includes('Robert') ? 'chequier_robert' : 'chequier_carmela';
-    const next = String(parseInt(savedNum) + 1);
+    // Conserve les zéros de tête (ex. 0125842 → 0125843)
+    const next = String(parseInt(savedNum) + 1).padStart(savedNum.length, '0');
     await setParam(cle, next);
   }
   await loadData();
@@ -1752,10 +1842,12 @@ function renderParametres() {
       ${[['robert','📘 Chéquier Robert','Chèque Robert'],['carmela','📗 Chéquier Carméla','Chèque Carméla']].map(([n,lbl,typ],i) => `
       <div class="chequier-row"${i?' style="margin-top:16px"':''}>
         <div class="chequier-label">${lbl}</div>
+        <div class="chequier-next-label">Numéro du <strong>prochain chèque à utiliser</strong></div>
         <div class="chip-input-row" style="margin:4px 0 0 0">
-          <input type="text" id="cheq-${n}" value="${escHtml(state.parametres['chequier_'+n] || '')}" placeholder="Prochain n° de chèque…" inputmode="numeric">
+          <input type="text" id="cheq-${n}" value="${escHtml(state.parametres['chequier_'+n] || '')}" placeholder="Ex : 0125842" inputmode="numeric">
           <button class="btn-small" onclick="saveChequier('${n}')">OK</button>
         </div>
+        <div class="chequier-hint">Ce numéro s'incrémente automatiquement à chaque chèque saisi dans le Suivi.</div>
         <div class="chequier-carnet-label">Carnet 1</div>
         <div class="chequier-bornes">
           <input type="text" id="cheqdeb-${n}" value="${escHtml(state.parametres['chequier_'+n+'_debut'] || '')}" placeholder="1ère formule" inputmode="numeric">
@@ -1819,8 +1911,15 @@ function renderParametres() {
       if (j >= 7) return `<div class="backup-alerte warn">⚠️ Dernière sauvegarde il y a ${j} jour${j>1?'s':''} — sauvegarde recommandée</div>`;
       return `<div class="backup-alerte ok">✅ Dernière sauvegarde il y a ${j === 0 ? "moins d'un jour" : j + ' jour' + (j>1?'s':'')}</div>`;
     })()}
+    <div class="card" style="margin:0 0 12px 0" id="auto-backup-card">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="name">☁️ Sauvegarde automatique vers iCloud</div>
+        <div class="sub">L'app écrit silencieusement vos données dans un fichier iCloud Drive au moins une fois par semaine — sans interruption.</div>
+      </div>
+      <div id="auto-backup-body">${autoBackupStatusHTML()}</div>
+    </div>
     <div class="params-item">
-      <div class="params-item-left"><div class="name">☁️ Sauvegarder dans iCloud</div><div class="sub">Partage natif → Fichiers → iCloud Drive</div></div>
+      <div class="params-item-left"><div class="name">☁️ Sauvegarder dans iCloud (manuel)</div><div class="sub">Partage natif → Fichiers → iCloud Drive</div></div>
       <button class="btn-small btn-icloud" onclick="sauvegardeICloud()">Sauvegarder</button>
     </div>
     <div class="params-item">
@@ -1860,6 +1959,8 @@ function bindParametres() {
     const el = document.getElementById('auth-email');
     if (el) el.textContent = (data && data.user && data.user.email) || 'Non connecté';
   });
+  // Rafraîchit le statut de l'auto-sauvegarde (lecture asynchrone IndexedDB)
+  refreshAutoBackupStatus();
 }
 
 function toggleLibelleBlock(id) {
@@ -2041,22 +2142,60 @@ async function saveChequierCarnets(nom) {
 // Annule une formule de chèque (perdue/abîmée) → décale de 1 numéro
 async function annulerCheque(nom) {
   const base = `chequier_${nom}`;
-  const cur = parseInt(state.parametres[base] || state.parametres[base + '_debut'] || '0', 10);
+  const raw = (state.parametres[base] || state.parametres[base + '_debut'] || '').trim();
+  const cur = parseInt(raw || '0', 10);
   if (!cur) { showToast('Définissez d\'abord le n° de chèque', 'error'); return; }
+  const pad = raw.length;
+  const curStr  = String(cur).padStart(pad, '0');
+  const nextStr = String(cur + 1).padStart(pad, '0');
   const label = nom === 'robert' ? 'Robert' : 'Carméla';
-  if (!confirm(`Annuler la formule n° ${cur} du chéquier ${label} ?\n\nElle sera considérée comme inutilisée : le prochain chèque passera au n° ${cur + 1}.`)) return;
-  await setParam(base, String(cur + 1));
-  showToast(`Formule n° ${cur} annulée — prochain : ${cur + 1}`, 'success');
+  if (!confirm(`Annuler la formule n° ${curStr} du chéquier ${label} ?\n\nElle sera considérée comme inutilisée : le prochain chèque passera au n° ${nextStr}.`)) return;
+  await setParam(base, nextStr);
+  showToast(`Formule n° ${curStr} annulée — prochain : ${nextStr}`, 'success');
   navigate('parametres');
 }
 
 function autoFillCheque(sel) {
   const val = sel.value;
+  // Le formulaire est un <div class="modal-form" id="suivi-form|mensu-form">
+  const root = sel.closest('.modal-form, form, .modal-body, #suivi-form, #mensu-form') || document;
+  // Affiche/masque le bouton « Annuler ce chèque » selon le type
+  const annul = root.querySelector('.btn-annul-inline');
+  if (annul) annul.style.display = val.includes('Chèque') ? '' : 'none';
   if (!val.includes('Chèque')) return;
   const next = getNextCheque(val);
   if (!next) return;
-  const inp = sel.closest('form, .modal-body')?.querySelector('[name="num_cheque"]');
+  const inp = root.querySelector('[name="num_cheque"]');
   if (inp && !inp.value) inp.value = next;
+}
+
+// Annule le chèque inscrit dans le formulaire d'opération (équivalent du bouton
+// dans Paramètres mais sans quitter la saisie en cours). Le champ N° Chèque est
+// rafraîchi avec le numéro suivant et la base est mise à jour.
+async function annulerChequeInline(btn) {
+  const root = btn.closest('.modal-form, form, .modal-body, #suivi-form, #mensu-form') || document;
+  const sel = root.querySelector('[name="type_operation"]');
+  const typeVal = sel ? sel.value : '';
+  if (!typeVal.includes('Chèque')) {
+    showToast('Sélectionnez d\'abord Chèque Robert ou Carméla', 'error');
+    return;
+  }
+  const isRobert = typeVal.includes('Robert');
+  const nom   = isRobert ? 'robert' : 'carmela';
+  const label = isRobert ? 'Robert' : 'Carméla';
+  const base = `chequier_${nom}`;
+  const raw = (state.parametres[base] || state.parametres[base + '_debut'] || '').trim();
+  const cur = parseInt(raw || '0', 10);
+  if (!cur) { showToast('Définissez d\'abord le n° de chèque dans Réglages', 'error'); return; }
+  const pad = raw.length;
+  const curStr  = String(cur).padStart(pad, '0');
+  const nextStr = String(cur + 1).padStart(pad, '0');
+  if (!confirm(`Annuler la formule n° ${curStr} du chéquier ${label} ?\n\nElle sera considérée comme inutilisée : le prochain chèque passera au n° ${nextStr}.`)) return;
+  await setParam(base, nextStr);
+  // Met à jour le champ N° Chèque du formulaire en cours
+  const inp = root.querySelector('[name="num_cheque"]');
+  if (inp) inp.value = nextStr;
+  showToast(`Formule n° ${curStr} annulée — prochain : ${nextStr}`, 'success');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2081,6 +2220,29 @@ function getSecondaires(principal) {
   const s = lib.secondaires;
   if (Array.isArray(s)) return s;
   try { return JSON.parse(s); } catch { return []; }
+}
+
+// Ajoute automatiquement à la liste des libellés ceux saisis dans un formulaire
+// (s'ils n'y figurent pas déjà). Idempotent : ne fait rien si tout est déjà connu.
+async function ensureLibelleExists(principal, secondaire) {
+  if (!sb) return;
+  const p = (principal || '').trim();
+  if (!p) return;
+  const existing = state.libelles.find(l => (l.principal || '').toLowerCase() === p.toLowerCase());
+  const s = (secondaire || '').trim();
+  if (!existing) {
+    // Nouveau libellé principal : on l'ajoute, avec son secondaire éventuel
+    const ordre = state.libelles.length;
+    const secondaires = s ? [s] : [];
+    await sb.from('libelles').insert({ principal: p, secondaires, ordre });
+    return;
+  }
+  // Le principal existe déjà : on enrichit la liste des secondaires si besoin
+  if (!s) return;
+  const secs = getSecondaires(existing.principal);
+  if (secs.some(x => (x || '').toLowerCase() === s.toLowerCase())) return;
+  const next = [...secs, s];
+  await sb.from('libelles').update({ secondaires: next }).eq('id', existing.id);
 }
 
 function updateSecondaires(principalVal, uid) {
@@ -2230,6 +2392,8 @@ async function saveMensu(id) {
   }
   setSyncing(false);
   if (err) { showToast('Erreur : ' + err.message, 'error'); return; }
+  // Enrichit automatiquement la liste des libellés
+  await ensureLibelleExists(data.libelle_principal, data.libelle_secondaire);
   showToast(id ? 'Mensualisation mise à jour' : 'Mensualisation ajoutée', 'success');
   closeModal();
   await loadData();
@@ -2377,13 +2541,23 @@ function getMoyensPaiement() {
 function getNextCheque(type) {
   const base = type.includes('Robert') ? 'chequier_robert' : 'chequier_carmela';
   // Prochain n° explicite, sinon on démarre sur la 1ère formule du carnet 1
-  let n = parseInt(state.parametres[base] || state.parametres[base + '_debut'] || '0', 10);
+  const rawNext  = (state.parametres[base] || '').trim();
+  const rawDeb1  = (state.parametres[base + '_debut'] || '').trim();
+  const raw      = rawNext || rawDeb1;
+  if (!raw) return '';
+  let n = parseInt(raw, 10);
   if (!n) return '';
-  const fin1  = parseInt(state.parametres[base + '_fin']    || '0', 10);
-  const deb2  = parseInt(state.parametres[base + '_debut2'] || '0', 10);
-  // Carnet 1 épuisé → bascule automatique sur le carnet 2
-  if (fin1 && deb2 && n > fin1 && n < deb2) n = deb2;
-  return String(n);
+  let pad = raw.length; // conserve les zéros de tête (ex. 0125842 → padding 7)
+  const rawFin1 = (state.parametres[base + '_fin']    || '').trim();
+  const rawDeb2 = (state.parametres[base + '_debut2'] || '').trim();
+  const fin1 = parseInt(rawFin1 || '0', 10);
+  const deb2 = parseInt(rawDeb2 || '0', 10);
+  // Carnet 1 épuisé → bascule automatique sur le carnet 2 (avec son padding)
+  if (fin1 && deb2 && n > fin1 && n < deb2) {
+    n = deb2;
+    pad = rawDeb2.length;
+  }
+  return String(n).padStart(pad, '0');
 }
 async function setParam(cle, valeur) {
   await sb.from('parametres').upsert({ cle, valeur }, { onConflict: 'cle' });
@@ -2446,34 +2620,263 @@ function joursDepuisBackup() {
   return Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
 }
 
-// ── Rappel automatique quotidien de sauvegarde ──────────
-function maybeAutoBackup() {
+// ── Rappel automatique hebdomadaire de sauvegarde ──────────
+// 1) On tente d'abord une sauvegarde silencieuse vers iCloud (Chrome desktop).
+// 2) Si non disponible (iOS / pas configuré) et > 7 jours depuis le dernier
+//    backup, on affiche une bannière discrète et fermable, plus aucune modale.
+async function maybeAutoBackup() {
+  // Tentative silencieuse — rien à afficher si ça réussit
+  const silent = await trySilentAutoBackup();
+  if (silent) return;
   const j = joursDepuisBackup();
-  if (j < 1) return; // sauvegardé il y a moins d'un jour
+  if (j < BACKUP_FREQ_DAYS) return;
   const today = new Date().toISOString().slice(0, 10);
-  if (localStorage.getItem('backup_snooze') === today) return; // déjà proposé aujourd'hui
-  const dernier = j === Infinity ? 'Aucune sauvegarde effectuée à ce jour.' :
-    `Dernière sauvegarde il y a ${j} jour${j > 1 ? 's' : ''}.`;
-  openModal(`
-  <div class="modal-handle"></div>
-  <div class="modal-title">☁️ Sauvegarde quotidienne</div>
-  <div class="modal-form">
-    <p style="color:var(--text-muted);font-size:14px;line-height:1.6;margin-bottom:6px">
-      ${dernier}<br>Sauvegardez vos données dans iCloud Drive en un geste.
-    </p>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
-      💡 Vos données sont déjà synchronisées dans le cloud Supabase — ceci est une archive de sécurité supplémentaire.
-    </p>
-    <div class="modal-actions">
-      <button class="btn-cancel" onclick="snoozeBackup()">Plus tard</button>
-      <button class="btn-save btn-icloud" onclick="closeModal(); sauvegardeICloud();">Sauvegarder dans iCloud</button>
-    </div>
-  </div>`);
+  if (localStorage.getItem('backup_snooze') === today) return;
+  showBackupBanner(j);
+}
+
+function showBackupBanner(j) {
+  if (document.getElementById('backup-banner')) return;
+  const dernier = j === Infinity ? 'aucune sauvegarde effectuée à ce jour'
+                                 : `dernière sauvegarde il y a ${j} jour${j > 1 ? 's' : ''}`;
+  const canSilent = supportsSilentBackup();
+  const cta = canSilent
+    ? `<button class="bb-cta" onclick="configureSilentBackup()">Configurer l'auto-sauvegarde</button>
+       <button class="bb-cta secondary" onclick="sauvegardeICloud()">Sauvegarder une fois</button>`
+    : `<button class="bb-cta" onclick="sauvegardeICloud()">Sauvegarder dans iCloud</button>`;
+  const html = `
+    <div id="backup-banner" class="backup-banner">
+      <span class="bb-icon">☁️</span>
+      <span class="bb-text">Sauvegarde recommandée — ${dernier}.</span>
+      <span class="bb-actions">${cta}</span>
+      <button class="bb-close" aria-label="Fermer" onclick="dismissBackupBanner()">×</button>
+    </div>`;
+  document.body.insertAdjacentHTML('afterbegin', html);
+}
+
+function dismissBackupBanner() {
+  const el = document.getElementById('backup-banner');
+  if (el) el.remove();
+  localStorage.setItem('backup_snooze', new Date().toISOString().slice(0, 10));
 }
 
 function snoozeBackup() {
   localStorage.setItem('backup_snooze', new Date().toISOString().slice(0, 10));
   closeModal();
+}
+
+// ═══════════════════════════════════════════════════════
+// SAUVEGARDE SILENCIEUSE iCloud (File System Access API)
+// Permet — sur les navigateurs compatibles, dont Chrome sur Mac — d'écrire
+// périodiquement et silencieusement dans un fichier que l'utilisateur a
+// choisi UNE seule fois dans iCloud Drive. Le handle est persisté en IndexedDB.
+// ═══════════════════════════════════════════════════════
+const BACKUP_DB = 'gestion2026-backup', BACKUP_STORE = 'handles', BACKUP_KEY = 'icloud-file';
+const BACKUP_FREQ_DAYS = 7; // sauvegarde silencieuse au moins 1×/semaine
+
+function _bkpIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(BACKUP_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(BACKUP_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function _bkpPut(handle) {
+  const db = await _bkpIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(BACKUP_STORE, 'readwrite');
+    try {
+      tx.objectStore(BACKUP_STORE).put(handle, BACKUP_KEY);
+    } catch (e) {
+      // DataCloneError (handle non clonable) : on rejette explicitement
+      try { tx.abort(); } catch {}
+      rej(e);
+      return;
+    }
+    tx.oncomplete = () => res();
+    tx.onerror   = () => rej(tx.error || new Error('IndexedDB transaction error'));
+    tx.onabort   = () => rej(tx.error || new Error('IndexedDB transaction aborted'));
+  });
+}
+async function _bkpGet() {
+  const db = await _bkpIDB();
+  return new Promise((res) => {
+    const tx = db.transaction(BACKUP_STORE, 'readonly');
+    const r = tx.objectStore(BACKUP_STORE).get(BACKUP_KEY);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror   = () => res(null);
+  });
+}
+async function _bkpDel() {
+  const db = await _bkpIDB();
+  return new Promise((res) => {
+    const tx = db.transaction(BACKUP_STORE, 'readwrite');
+    tx.objectStore(BACKUP_STORE).delete(BACKUP_KEY);
+    tx.oncomplete = () => res();
+    tx.onerror = () => res();
+  });
+}
+
+function supportsSilentBackup() {
+  return typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
+}
+
+// L'utilisateur choisit un fichier dans iCloud Drive → on persiste le handle.
+// Sécurisé : on ne persiste le handle QUE si la 1ère écriture est lisible (> 0 octet).
+async function configureSilentBackup() {
+  if (!supportsSilentBackup()) {
+    showToast('Sauvegarde auto non supportée sur ce navigateur — utilisez le partage iCloud.', 'error');
+    return;
+  }
+  let handle;
+  // 1) Sélection du fichier — échec = annulation propre
+  try {
+    handle = await window.showSaveFilePicker({
+      suggestedName: 'gestion2026_backup.json',
+      types: [{ description: 'Sauvegarde Gestion 2026', accept: { 'application/json': ['.json'] } }],
+    });
+  } catch (e) {
+    if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) {
+      showToast('Configuration annulée — cliquez sur Enregistrer dans le sélecteur pour valider.', 'error');
+      return;
+    }
+    showToast('Sélecteur de fichier indisponible : ' + (e.message || e), 'error');
+    return;
+  }
+  // 2) Permission readwrite
+  const okPerm = await _bkpEnsurePermission(handle);
+  if (!okPerm) {
+    showToast('Autorisation d\'écriture refusée — réessayez.', 'error');
+    return;
+  }
+  // 3) Écriture de test
+  const payload = buildBackupPayload();
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(payload);
+    await writable.close();
+  } catch (e) {
+    showToast('Écriture impossible dans ce fichier : ' + (e.message || e) + '. Choisissez un autre emplacement.', 'error');
+    return;
+  }
+  // 4) Vérification — relire le fichier et confirmer la taille
+  try {
+    const f = await handle.getFile();
+    if (!f || f.size < payload.length * 0.5) {
+      showToast(`Écriture incomplète (${f ? f.size : 0} octets reçus). iCloud Drive peut bloquer l'API — essayez un dossier local hors iCloud.`, 'error');
+      return;
+    }
+  } catch (e) {
+    showToast('Lecture de contrôle impossible : ' + (e.message || e), 'error');
+    return;
+  }
+  // 5) Tout est bon → on persiste le handle, puis on vérifie qu'on peut le relire
+  try {
+    await _bkpPut(handle);
+  } catch (e) {
+    const msg = (e && e.name === 'DataCloneError')
+      ? 'Ce fichier ne peut pas être mémorisé (DataCloneError) — choisissez un fichier hors iCloud Drive.'
+      : 'Mémorisation du fichier impossible : ' + (e.message || e);
+    showToast(msg, 'error');
+    return;
+  }
+  // Lecture de contrôle : si le handle persisté est null, c'est une corruption silencieuse
+  const verif = await _bkpGet();
+  if (!verif) {
+    showToast('Mémorisation invisible après écriture — IndexedDB peut être désactivée (mode privé ?).', 'error');
+    return;
+  }
+  localStorage.setItem('last_backup', new Date().toISOString());
+  showToast('Sauvegarde auto configurée ✓ — fichier validé.', 'success');
+  if (state.view === 'parametres') render();
+}
+
+async function _bkpEnsurePermission(handle) {
+  if (!handle || !handle.queryPermission) return true;
+  const opts = { mode: 'readwrite' };
+  if ((await handle.queryPermission(opts)) === 'granted') return true;
+  return (await handle.requestPermission(opts)) === 'granted';
+}
+
+// Écrit le payload dans le fichier persisté — sans aucune UI.
+async function silentBackupNow() {
+  const handle = await _bkpGet();
+  if (!handle) return false;
+  const ok = await _bkpEnsurePermission(handle);
+  if (!ok) return false;
+  const writable = await handle.createWritable();
+  await writable.write(buildBackupPayload());
+  await writable.close();
+  localStorage.setItem('last_backup', new Date().toISOString());
+  return true;
+}
+
+async function disableSilentBackup() {
+  if (!confirm('Désactiver la sauvegarde automatique vers iCloud ?')) return;
+  await _bkpDel();
+  showToast('Sauvegarde auto désactivée', 'success');
+  if (state.view === 'parametres') render();
+}
+
+// Tentative silencieuse au démarrage si configurée + intervalle dépassé.
+// Rend le bloc de statut de la sauvegarde auto (en synchrone : renvoie un placeholder,
+// puis rafraîchit asynchrone après lecture IndexedDB).
+function autoBackupStatusHTML() {
+  if (!supportsSilentBackup()) {
+    return `<div class="auto-bk-pill warn">⚠️ Non disponible sur ce navigateur</div>
+            <div class="sub" style="margin-top:6px;font-size:12px">Safari iOS n'expose pas l'API d'écriture directe. Utilisez « Sauvegarder dans iCloud (manuel) » ci-dessous : un partage natif vers Fichiers → iCloud Drive.</div>`;
+  }
+  // Placeholder rafraîchi par refreshAutoBackupStatus()
+  return `<div class="auto-bk-loading">Vérification…</div>`;
+}
+
+async function refreshAutoBackupStatus() {
+  const body = document.getElementById('auto-backup-body');
+  if (!body || !supportsSilentBackup()) return;
+  const handle = await _bkpGet();
+  if (!handle) {
+    body.innerHTML = `
+      <div class="auto-bk-pill off">○ Désactivée</div>
+      <button class="btn-small btn-icloud" style="margin-top:10px" onclick="configureSilentBackup()">Configurer maintenant →</button>
+      <div class="sub" style="margin-top:8px;font-size:12px">Vous choisirez un fichier dans iCloud Drive. L'app y écrira ensuite vos données automatiquement chaque semaine, sans rien vous demander.</div>`;
+    return;
+  }
+  const name = handle.name || 'fichier sélectionné';
+  const j = joursDepuisBackup();
+  const dernier = j === Infinity ? 'jamais'
+                                 : j === 0 ? "il y a moins d'un jour"
+                                 : `il y a ${j} jour${j>1?'s':''}`;
+  body.innerHTML = `
+    <div class="auto-bk-pill ok">✅ Activée</div>
+    <div class="auto-bk-row"><span class="auto-bk-k">Fichier :</span><span class="auto-bk-v">${escHtml(name)}</span></div>
+    <div class="auto-bk-row"><span class="auto-bk-k">Dernière écriture :</span><span class="auto-bk-v">${dernier}</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn-small" onclick="forceSilentBackup()">Sauvegarder maintenant</button>
+      <button class="btn-small btn-danger" onclick="disableSilentBackup()">Désactiver</button>
+    </div>`;
+}
+
+async function forceSilentBackup() {
+  const ok = await silentBackupNow();
+  if (ok) {
+    showToast('Sauvegarde effectuée ✓', 'success');
+    refreshAutoBackupStatus();
+  } else {
+    showToast("Échec — autorisation refusée ou fichier déplacé. Reconfigurez la sauvegarde.", 'error');
+  }
+}
+
+async function trySilentAutoBackup() {
+  if (joursDepuisBackup() < BACKUP_FREQ_DAYS) return false;
+  const handle = await _bkpGet();
+  if (!handle) return false;
+  // queryPermission ne nécessite pas de geste utilisateur ; si déjà 'granted', on écrit.
+  try {
+    const perm = handle.queryPermission ? await handle.queryPermission({ mode: 'readwrite' }) : 'granted';
+    if (perm !== 'granted') return false; // on n'interrompt pas l'utilisateur ; il pourra réautoriser manuellement
+    return await silentBackupNow();
+  } catch { return false; }
 }
 
 // ── Export PDF du suivi mensuel (via impression) ────────
@@ -2807,6 +3210,8 @@ async function onSignedIn() {
   showApp();
   bindSwipe();
   await loadData();
+  // Démarrage : l'app s'ouvre sur le Suivi journalier (chip + titre + vue synchros)
+  navigate(state.view || 'suivi');
   subscribeRealtime();
   setTimeout(maybeAutoBackup, 1500);
 }

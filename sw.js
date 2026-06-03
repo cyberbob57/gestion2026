@@ -1,5 +1,5 @@
-const CACHE = 'gestion2026-v45';
-const ASSETS = ['./index.html', './app.css', './app.js', './icon.svg'];
+const CACHE = 'gestion2026-v69';
+const ASSETS = ['./index.html', './app.css', './app.js', './icon.svg', './icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(() => {}));
