@@ -787,10 +787,25 @@ a { color: var(--primary-mid); }
   vertical-align: middle;
   box-shadow: 0 2px 6px rgba(124,58,237,.4);
 }
-.echeance-grp {
+.echeance-grp,
+.echeance-multi-grp {
   animation: fadeIn .18s ease;
   background: #F5F3FF; border-radius: 12px;
   padding: 12px 14px; border: 2px solid #DDD6FE;
+}
+.ech-row {
+  display: grid; grid-template-columns: 70px 1fr 1.4fr 1fr; gap: 6px;
+  align-items: center; margin-top: 8px;
+}
+.ech-row-static { grid-template-columns: 70px 1fr; }
+.ech-label { font-size: 12px; font-weight: 700; color: var(--primary); }
+.ech-static { font-size: 13px; color: var(--text); font-weight: 600; }
+.ech-input { padding: 6px 8px; font-size: 13px; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
+.ech-input:focus { outline: none; border-color: var(--primary-mid); }
+@media (max-width: 480px) {
+  .ech-row { grid-template-columns: 56px 1fr 1.2fr 1fr; }
+  .ech-label { font-size: 11px; }
+  .ech-input { font-size: 12px; padding: 5px 6px; }
 }
 @keyframes fadeIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
 

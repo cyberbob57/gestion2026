@@ -1474,13 +1474,13 @@ function suiviForm(data = {}) {
   <div class="row2">
     <div class="form-group">
       <label>Mois</label>
-      <select name="mois">
+      <select name="mois" onchange="refreshEch1Recap(${uid})">
         ${MOIS_FR.map((m,i) => `<option value="${i+1}"${(i+1)===moisVal?' selected':''}>${m}</option>`).join('')}
       </select>
     </div>
     <div class="form-group">
       <label>Année</label>
-      <select name="annee">
+      <select name="annee" onchange="refreshEch1Recap(${uid})">
         ${anneesOpt.map(y => `<option value="${y}"${y===anneeVal?' selected':''}>${y}</option>`).join('')}
       </select>
     </div>
@@ -1488,7 +1488,7 @@ function suiviForm(data = {}) {
   <div class="row2">
     <div class="form-group">
       <label>Jour</label>
-      <input type="number" name="jour" min="1" max="31" value="${data.jour || ''}" placeholder="1–31">
+      <input type="number" name="jour" min="1" max="31" value="${data.jour || ''}" placeholder="1–31" oninput="refreshEch1Recap(${uid})">
     </div>
     <div class="form-group">
       <label>N° Chèque</label>
@@ -1507,7 +1507,9 @@ function suiviForm(data = {}) {
       ${getMoyensPaiement().map(t => `<option${typeBase===t?' selected':''}>${t}</option>`).join('')}
     </select>
   </div>
-  ${echeanceGroup4X(uid, isPaypal4X, echeanceVal || 1)}
+  ${data.id
+    ? echeanceGroup4X(uid, isPaypal4X, echeanceVal || 1)
+    : echeanceMultiGroup4X(uid, isPaypal4X, parseInt(data.jour) || null, moisVal, anneeVal)}
   <div class="row2">
     <div class="form-group">
       <label>Crédit (€)</label>
@@ -1584,12 +1586,22 @@ function dupliquerSuiviEntry(id) {
 async function saveSuiviEntry(id) {
   const form = document.getElementById('suivi-form');
   const data = {};
+  // On extrait à part les champs Éch 2/3/4 (mode 4X création)
+  const ech = {};
   form.querySelectorAll('[name]').forEach(el => {
-    if (el.name === 'echeance') return; // géré séparément
+    if (el.name === 'echeance') return; // sélecteur unique (mode édition uniquement)
+    const m = /^ech(\d)_(jour|mois|annee)$/.exec(el.name);
+    if (m) {
+      const n = m[1], key = m[2];
+      ech[n] = ech[n] || {};
+      ech[n][key] = el.value.trim() || null;
+      return;
+    }
     data[el.name] = el.value.trim() || null;
   });
-  // Combine Paypal en 4X + écheance
-  if (data.type_operation === 'Paypal en 4X') {
+  // Combine Paypal en 4X + échéance (mode édition : sélecteur unique présent)
+  const isPp4xCreation = data.type_operation === 'Paypal en 4X' && !id && Object.keys(ech).length > 0;
+  if (data.type_operation === 'Paypal en 4X' && id) {
     const echeanceSel = form.querySelector('[name="echeance"]');
     const n = echeanceSel ? echeanceSel.value : '1';
     data.type_operation = `Paypal en 4X – Éch. ${n}/4`;
@@ -1611,7 +1623,25 @@ async function saveSuiviEntry(id) {
   }
   setSyncing(true);
   let err, savedId = id;
-  if (id) {
+  // Mode "Paypal en 4X — création" : on insère 4 lignes datées Éch 1/4 → Éch 4/4
+  if (isPp4xCreation) {
+    const rows = [];
+    for (let n = 1; n <= 4; n++) {
+      const r = { ...data, type_operation: `Paypal en 4X – Éch. ${n}/4` };
+      if (n === 1) {
+        // Éch 1 utilise la date principale (déjà dans data)
+      } else {
+        const d = ech[n] || {};
+        r.jour  = d.jour  ? parseInt(d.jour)  : data.jour;
+        r.mois  = d.mois  ? parseInt(d.mois)  : data.mois;
+        r.annee = d.annee ? parseInt(d.annee) : data.annee;
+      }
+      rows.push(r);
+    }
+    const { data: insRows, error: e } = await sb.from('suivi_mensuel').insert(rows).select();
+    err = e;
+    if (insRows && insRows.length) savedId = insRows[0].id;
+  } else if (id) {
     ({ error: err } = await sb.from('suivi_mensuel').update(data).eq('id', id));
   } else {
     const ins = await sb.from('suivi_mensuel').insert(data).select().single();
@@ -2307,9 +2337,58 @@ function echeanceGroup4X(uid, isVisible, selectedVal) {
     </select>
   </div>`;
 }
+// Mode "création" : on saisit les 4 dates d'échéances d'un coup.
+// Éch 1 = la date principale (jour/mois/année du haut du formulaire), Éch 2-4 = à choisir ci-dessous.
+function echeanceMultiGroup4X(uid, isVisible, baseJour, baseMois, baseAnnee) {
+  const annees = [];
+  for (let y = baseAnnee - 1; y <= baseAnnee + 2; y++) annees.push(y);
+  // Calcule des dates par défaut : +1, +2, +3 mois à partir de la date principale
+  const def = (delta) => {
+    if (!baseJour) return { j:'', m: baseMois || (state.mois+1), a: baseAnnee || state.annee };
+    const d = new Date(baseAnnee || state.annee, (baseMois || (state.mois+1)) - 1 + delta, baseJour);
+    return { j: d.getDate(), m: d.getMonth()+1, a: d.getFullYear() };
+  };
+  const row = (n, def) => `
+    <div class="ech-row">
+      <span class="ech-label">Éch. ${n}/4</span>
+      <input type="number" name="ech${n}_jour" min="1" max="31" value="${def.j}" placeholder="Jour" class="ech-input ech-jour">
+      <select name="ech${n}_mois" class="ech-input ech-mois">
+        ${MOIS_FR.map((m,i) => `<option value="${i+1}"${(i+1)===def.m?' selected':''}>${m}</option>`).join('')}
+      </select>
+      <select name="ech${n}_annee" class="ech-input ech-annee">
+        ${annees.map(y => `<option value="${y}"${y===def.a?' selected':''}>${y}</option>`).join('')}
+      </select>
+    </div>`;
+  return `
+  <div class="form-group echeance-multi-grp" id="echeance-multi-grp-${uid}" style="display:${isVisible?'':'none'}">
+    <label>Dates des 4 échéances</label>
+    <div class="sub" style="font-size:11px;margin:-2px 0 6px;color:var(--text-muted)">Éch. 1/4 = la date principale en haut du formulaire. Modifiez les autres si nécessaire.</div>
+    <div class="ech-row ech-row-static">
+      <span class="ech-label">Éch. 1/4</span>
+      <span class="ech-static" id="ech1-recap-${uid}">${baseJour||'—'} / ${MOIS_FR[(baseMois||1)-1]||'—'} / ${baseAnnee||'—'}</span>
+    </div>
+    ${row(2, def(1))}
+    ${row(3, def(2))}
+    ${row(4, def(3))}
+  </div>`;
+}
 function toggleEcheance4X(sel, uid) {
-  const grp = document.getElementById('echeance-grp-' + uid);
-  if (grp) grp.style.display = sel.value === 'Paypal en 4X' ? '' : 'none';
+  const single = document.getElementById('echeance-grp-' + uid);
+  const multi  = document.getElementById('echeance-multi-grp-' + uid);
+  const isPp4X = sel.value === 'Paypal en 4X';
+  // Le multi (4 dates) ne s'affiche que pour une nouvelle saisie (présent dans le DOM si !id à la création du form)
+  if (multi) multi.style.display = isPp4X ? '' : 'none';
+  if (single) single.style.display = (isPp4X && !multi) ? '' : 'none';
+}
+// Met à jour le récap "Éch. 1/4" en haut du bloc quand la date principale change
+function refreshEch1Recap(uid) {
+  const root = document.getElementById('echeance-multi-grp-' + uid)?.closest('.modal-form, form');
+  if (!root) return;
+  const j = root.querySelector('[name="jour"]')?.value || '—';
+  const m = parseInt(root.querySelector('[name="mois"]')?.value || '0');
+  const a = root.querySelector('[name="annee"]')?.value || '—';
+  const el = document.getElementById('ech1-recap-' + uid);
+  if (el) el.textContent = `${j} / ${MOIS_FR[m-1] || '—'} / ${a}`;
 }
 
 function showAddMensu() {
