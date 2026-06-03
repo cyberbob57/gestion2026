@@ -1368,6 +1368,13 @@ a { color: var(--primary-mid); }
 .journal-cat-icon .veh-svg { width: 26px; height: 26px; }
 
 /* ── Sauvegarde iCloud ─────────────────────────────────── */
+.btn-sync {
+  background: linear-gradient(135deg, #0E7490, #06B6D4);
+  color: #fff !important;
+  border: none;
+  padding: 8px 16px;
+}
+.btn-sync:hover { filter: brightness(1.1); }
 .btn-icloud {
   background: linear-gradient(135deg, var(--primary-dark), var(--primary-mid));
   color: #fff !important;

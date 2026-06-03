@@ -1932,6 +1932,15 @@ function renderParametres() {
       <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
     </div>
 
+    <h3>Maintenance</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="name">Synchroniser les dates des mensualisations</div>
+        <div class="sub">Aligne le jour de chaque opération du Suivi inscrite comme mensualisation sur le jour défini dans la page Mensuel. Utile si vous avez modifié un jour récemment et que ce n'est pas répercuté partout.</div>
+      </div>
+      <button class="btn-small btn-sync" onclick="synchroniserDatesMensu()">🔄 Synchroniser maintenant</button>
+    </div>
+
     <h3>Nouvel exercice annuel</h3>
     <div class="card" style="margin:0">
       <div class="params-item-left" style="margin-bottom:10px">
@@ -2423,6 +2432,48 @@ async function saveMensu(id) {
     : 'Mensualisation ajoutée';
   showToast(msg, 'success');
   closeModal();
+  await loadData();
+}
+
+// Parcourt toutes les mensualisations et aligne le jour de chaque ligne du Suivi
+// inscrite comme mensualisation (match libellé principal + secondaire).
+async function synchroniserDatesMensu() {
+  if (!confirm('Aligner toutes les opérations du Suivi inscrites comme mensualisations sur les jours définis en Mensuel ?\n\nLes opérations saisies manuellement (hors mensualisations) ne seront pas touchées.')) return;
+  setSyncing(true);
+  let totalRows = 0;
+  let mensuTouched = 0;
+  try {
+    for (const m of state.mensualisations) {
+      const targetJour = parseInt(m.jour);
+      if (!targetJour) continue;
+      // Liste les lignes correspondantes qui ne sont pas déjà au bon jour
+      let q = sb.from('suivi_mensuel')
+        .update({ jour: targetJour })
+        .eq('is_mensualisation', true)
+        .eq('libelle_principal', m.libelle_principal || '')
+        .neq('jour', targetJour);
+      if (m.libelle_secondaire) {
+        q = q.eq('libelle_secondaire', m.libelle_secondaire);
+      } else {
+        q = q.is('libelle_secondaire', null);
+      }
+      const { data: rows, error } = await q.select('id');
+      if (!error && rows && rows.length) {
+        totalRows += rows.length;
+        mensuTouched++;
+      }
+    }
+  } catch (e) {
+    setSyncing(false);
+    showToast('Erreur : ' + (e.message || e), 'error');
+    return;
+  }
+  setSyncing(false);
+  if (totalRows === 0) {
+    showToast('Aucune correction nécessaire — tout est déjà aligné.', 'success');
+  } else {
+    showToast(`${totalRows} ligne${totalRows>1?'s':''} corrigée${totalRows>1?'s':''} sur ${mensuTouched} mensualisation${mensuTouched>1?'s':''}.`, 'success');
+  }
   await loadData();
 }
 
