@@ -2382,6 +2382,9 @@ async function saveMensu(id) {
   data.jour = parseInt(data.jour) || 1;
   if (!data.libelle_principal) { showToast('Libellé principal requis', 'error'); return; }
 
+  // Mémorise l'état AVANT modification pour pouvoir détecter ce qui a changé
+  const oldMensu = id ? state.mensualisations.find(m => m.id === id) : null;
+
   setSyncing(true);
   let err;
   if (id) {
@@ -2390,11 +2393,35 @@ async function saveMensu(id) {
   } else {
     ({ error: err } = await sb.from('mensualisations').insert(data));
   }
+  if (err) { setSyncing(false); showToast('Erreur : ' + err.message, 'error'); return; }
+
+  // Si on a modifié le jour d'une mensualisation, propage le changement aux
+  // opérations déjà inscrites dans le Suivi qui correspondent à cette mensu.
+  // On match sur les ANCIENS libellés (au cas où ils ont été renommés dans le même save).
+  let propagated = 0;
+  if (id && oldMensu && oldMensu.jour !== data.jour) {
+    let q = sb.from('suivi_mensuel')
+      .update({ jour: data.jour })
+      .eq('is_mensualisation', true)
+      .eq('libelle_principal', oldMensu.libelle_principal || '');
+    if (oldMensu.libelle_secondaire) {
+      q = q.eq('libelle_secondaire', oldMensu.libelle_secondaire);
+    } else {
+      q = q.is('libelle_secondaire', null);
+    }
+    const { data: rows, error: e2 } = await q.select('id');
+    if (!e2 && rows) propagated = rows.length;
+  }
   setSyncing(false);
-  if (err) { showToast('Erreur : ' + err.message, 'error'); return; }
+
   // Enrichit automatiquement la liste des libellés
   await ensureLibelleExists(data.libelle_principal, data.libelle_secondaire);
-  showToast(id ? 'Mensualisation mise à jour' : 'Mensualisation ajoutée', 'success');
+  const msg = id
+    ? (propagated
+        ? `Mensualisation mise à jour — date propagée sur ${propagated} ligne${propagated>1?'s':''} du Suivi.`
+        : 'Mensualisation mise à jour')
+    : 'Mensualisation ajoutée';
+  showToast(msg, 'success');
   closeModal();
   await loadData();
 }
