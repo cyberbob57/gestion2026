@@ -39,7 +39,20 @@
   html.theme-dark .card { background: var(--card); }
   html.theme-dark .mensu-row, html.theme-dark .mensu-row-alt { background: var(--card); }
   html.theme-dark .mensu-row-alt { background: #162032; }
+  html.theme-dark .suivi-row { background: var(--card); }
   html.theme-dark .suivi-row-alt { background: #162032; }
+  html.theme-dark .suivi-row:hover { background: #1E3A5F; }
+  html.theme-dark .suivi-row.suivi-row-alt:hover { background: #243B5A; }
+  /* Fix contraste : sur fond sombre, les colonnes au texte noir doivent passer en clair */
+  html.theme-dark .col-cheque,
+  html.theme-dark .col-type,
+  html.theme-dark .lib-principal { color: var(--text); }
+  html.theme-dark .lib-secondaire { color: #93C5FD; }   /* bleu clair sur fond sombre */
+  html.theme-dark .lib-libre {
+    color: #DBEAFE;
+    background: rgba(59,130,246,.15);
+    border-color: rgba(96,165,250,.3);
+  }
   html.theme-dark .suivi-table thead th { background: #162032; color: var(--text-muted); }
   html.theme-dark .suivi-total-row { background: #1E293B; }
   html.theme-dark #modal-container { background: var(--card); }
