@@ -50,6 +50,27 @@ async function setTheme(key) {
   navigate('parametres');
 }
 
+// ── Mode sombre (auto / light / dark) ─────────────────────
+function getDarkMode() { return localStorage.getItem('dark_mode') || 'auto'; }
+function applyDarkMode(mode) {
+  const isDark = mode === 'dark' || (mode === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('theme-dark', isDark);
+  // Met aussi à jour le theme-color de la barre iOS
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', isDark ? '#0F172A' : '#1F3864');
+}
+function setDarkMode(mode) {
+  localStorage.setItem('dark_mode', mode);
+  applyDarkMode(mode);
+  if (state.view === 'parametres') render();
+}
+// Écoute les changements système si mode = auto
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (getDarkMode() === 'auto') applyDarkMode('auto');
+  });
+}
+
 // ── Banques (badges stylisés originaux, pas les logos déposés) ──
 const BANKS = {
   lbp:        { l1: 'La Banque', l2: 'Postale',        mk: 'LBP',  c1: '#FFD200', c2: '#003781', mkBg: '#FFD200', mkFg: '#003781' },
@@ -248,12 +269,34 @@ async function supprimerLogoBanque() {
   navigate('parametres');
 }
 
-// Couleur stable déduite du nom de catégorie (pour pastilles)
+// Palette catégorielle riche — sémantique (revenu vert, logement bleu, etc.)
+// Ordre = priorité : la 1ère clé matchée gagne.
+const CAT_COLOR_MAP = [
+  ['salaire',        '#10B981'], ['retraite',     '#10B981'], ['allocation',    '#10B981'],
+  ['remboursement',  '#059669'], ['dépôt',        '#059669'], ['depot',         '#059669'],
+  ['habitation',     '#1E3A8A'], ['loyer',        '#1E3A8A'],
+  ['courses',        '#F97316'], ['alimentation', '#F97316'],
+  ['restaurant',     '#EA580C'],
+  ['carburant',      '#F59E0B'], ['autoroute',    '#D97706'], ['voiture', '#D97706'], ['véhicule', '#D97706'],
+  ['mutuelle',       '#EC4899'], ['santé',        '#DB2777'], ['sante', '#DB2777'], ['coiffeur', '#F472B6'], ['ongle', '#F472B6'],
+  ['loisirs',        '#8B5CF6'], ['cadeau',       '#A855F7'],
+  ['habillement',    '#B45309'], ['ameublement',  '#92400E'],
+  ['banque',         '#0EA5E9'], ['virement',     '#0284C7'], ['distributeur', '#0284C7'],
+  ['assurance',      '#6366F1'],
+  ['achats',         '#DB2777'], ['internet',     '#C026D3'],
+  ['impôt',          '#475569'], ['impot',        '#475569'], ['taxe', '#475569'],
+  ['imprévu',        '#DC2626'], ['imprevu',      '#DC2626'],
+  ['virtuelle',      '#94A3B8'],
+];
 function catColor(name) {
-  const s = String(name || '');
+  const s = String(name || '').toLowerCase();
+  for (const [kw, color] of CAT_COLOR_MAP) {
+    if (s.includes(kw)) return color;
+  }
+  // Fallback élégant : hash → HSL douce (50% saturation, 45% lumière)
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
-  return `hsl(${h}, 60%, 50%)`;
+  return `hsl(${h}, 50%, 45%)`;
 }
 
 // Règles de pictogrammes définies par l'utilisateur (Paramètres)
@@ -513,6 +556,40 @@ function render() {
 }
 
 // ═══════════════════════════════════════════════════════
+// MASCOTTE — personnage SVG dont l'expression reflète l'état budgétaire
+// ═══════════════════════════════════════════════════════
+function mascotteSVG(solde, totalCredit) {
+  // 3 états : heureux (solde sain), neutre, inquiet (proche zéro ou négatif)
+  let state = 'happy', mouth, eyes, fill = '#10B981';
+  if (solde < 0) {
+    state = 'sad'; fill = '#EF4444';
+  } else if (totalCredit > 0 && solde / totalCredit < 0.15) {
+    state = 'worried'; fill = '#F59E0B';
+  }
+  // Bouches selon état
+  const mouths = {
+    happy:   '<path d="M38 60 Q50 72 62 60" stroke="white" stroke-width="3.5" fill="none" stroke-linecap="round"/>',
+    worried: '<path d="M38 65 Q50 60 62 65" stroke="white" stroke-width="3.5" fill="none" stroke-linecap="round"/>',
+    sad:     '<path d="M38 68 Q50 56 62 68" stroke="white" stroke-width="3.5" fill="none" stroke-linecap="round"/>',
+  };
+  // Yeux selon état
+  const eyesMap = {
+    happy:   '<circle cx="38" cy="42" r="3.5" fill="white"/><circle cx="62" cy="42" r="3.5" fill="white"/>',
+    worried: '<circle cx="38" cy="42" r="3" fill="white"/><circle cx="62" cy="42" r="3" fill="white"/><path d="M30 35 L46 38" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M70 35 L54 38" stroke="white" stroke-width="2" stroke-linecap="round"/>',
+    sad:     '<path d="M33 38 L43 42 M33 42 L43 38" stroke="white" stroke-width="2.5" stroke-linecap="round"/><path d="M57 38 L67 42 M57 42 L67 38" stroke="white" stroke-width="2.5" stroke-linecap="round"/>',
+  };
+  return `
+  <div class="mascotte mascotte-${state}" title="${state==='happy'?'Tout va bien !':state==='worried'?'Budget serré, attention.':'Solde négatif, prudence !'}">
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="45" fill="${fill}"/>
+      <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="3"/>
+      ${eyesMap[state]}
+      ${mouths[state]}
+    </svg>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════
 function renderDashboard() {
@@ -551,6 +628,7 @@ function renderDashboard() {
     <span class="alerte-arrow">›</span>
   </div>` : ''}
   <div class="solde-card">
+    ${mascotteSVG(solde, totalC)}
     <div class="solde-label">Solde net — ${MOIS_FR[state.mois]} ${state.annee}</div>
     <div class="solde-amount ${soldeClass}">${fmt(solde)}</div>
     <div class="solde-sub">
@@ -1739,6 +1817,27 @@ function renderParametres() {
           ${k===tk?'<span class="ts-check">✓</span>':''}
         </button>`).join('')}
       </div>
+    </div>
+
+    <h3>Mode sombre</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="sub">Choisissez l'apparence claire ou sombre — ou laissez Auto pour suivre les réglages système.</div>
+      </div>
+      ${(() => {
+        const dm = getDarkMode();
+        const opts = [
+          ['light', '☀️', 'Clair'],
+          ['auto',  '⚙️', 'Auto'],
+          ['dark',  '🌙', 'Sombre'],
+        ];
+        return `<div class="darkmode-grid">${opts.map(([k,ic,n]) => `
+          <button class="dm-swatch${k===dm?' active':''}" onclick="setDarkMode('${k}')">
+            <span class="dm-icon">${ic}</span>
+            <span class="dm-name">${n}</span>
+            ${k===dm?'<span class="dm-check">✓</span>':''}
+          </button>`).join('')}</div>`;
+      })()}
     </div>
 
     <h3>Banque du compte courant</h3>
@@ -3668,6 +3767,7 @@ function statsContent(totalDebit, totalCredit, sortD, sortC, period) {
     ${sortD.length > 0 ? `
     <div class="stats-section-title">🍩 Répartition des dépenses <span class="stats-period">${period}</span></div>
     <div class="card stats-donut-wrap"><canvas id="stats-donut"></canvas></div>` : ''}
+    ${statsTimelineHTML()}
     <div class="stats-section-title">📉 Postes de dépenses <span class="stats-period">${period}</span></div>
     <div class="stats-cats">${expHtml}</div>
     <div class="stats-section-title">📈 Récap des entrées <span class="stats-period">${period}</span></div>
@@ -3678,6 +3778,35 @@ function statsContent(totalDebit, totalCredit, sortD, sortC, period) {
 // Stats « Compte courant » : uniquement le compte courant, hors virements auto
 function statsBase() {
   return state.suivi.filter(e => !e.source_id && suiviCompte(e) === 'courant');
+}
+
+// Timeline 12 mois : barres verticales empilées (crédit en haut, débit en bas)
+function statsTimelineHTML() {
+  const data = Array.from({ length: 12 }, (_, i) => {
+    const ents = state.suivi.filter(e => e.annee === state.annee && e.mois === i + 1 && !e.source_id);
+    const c = ents.reduce((s,e) => s + parseFloat(e.credit||0), 0);
+    const d = ents.reduce((s,e) => s + parseFloat(e.debit||0), 0);
+    return { c, d };
+  });
+  const maxVal = Math.max(...data.map(m => Math.max(m.c, m.d)), 1);
+  const cur = state.mois;
+  const cols = data.map((m, i) => {
+    const ch = (m.c / maxVal) * 100;
+    const dh = (m.d / maxVal) * 100;
+    return `
+    <div class="tl-col${i===cur?' tl-current':''}" title="${MOIS_FR[i]} : +${fmt(m.c)} / −${fmt(m.d)}">
+      <div class="tl-bars">
+        ${m.c>0 ? `<div class="tl-bar credit" style="height:${ch.toFixed(1)}%"></div>` : ''}
+        ${m.d>0 ? `<div class="tl-bar debit"  style="height:${dh.toFixed(1)}%"></div>` : ''}
+      </div>
+      <div class="tl-label">${MOIS_COURT[i]}</div>
+    </div>`;
+  }).join('');
+  return `
+  <div class="stats-timeline-wrap">
+    <div class="stats-timeline-title">📅 Évolution sur l'année ${state.annee}</div>
+    <div class="stats-timeline">${cols}</div>
+  </div>`;
 }
 
 function renderStatsMensuel() {
