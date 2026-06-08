@@ -453,15 +453,15 @@ function entryIcon(o) {
   if (/entretien/.test(txt)) prefix = '🔧 ';                                                     // contrat d'entretien : clé à molette
   if (txt.includes('yaris') || txt.includes('toyota')) return prefix + carSVG('#2563EB', 'Toyota Yaris'); // bleu
   if (txt.includes('mercedes'))                        return prefix + carSVG('#DC2626', 'Mercedes');     // rouge
-  if (/\beau\b/.test(txt) || txt.includes('sebvf'))    return '🏠🚰';                            // eau : maison + robinet
-  if (/\b(electricit|électricit|uem|edf)\w*/.test(txt)) return '🏠💡';                           // électricité : maison + ampoule
-  if (/\bgaz\b/.test(txt))                              return '🏠🛢️';                           // gaz : maison + bouteille
-  if (/\bprixtel\b/.test(txt))                          return '🏠🥷';                           // Prixtel : maison + homme masqué
-  if (/\b(freebox|livebox|box)\b/.test(txt))            return '🏠📡';                           // box internet : maison + antenne
-  if (/\b(free\s*mobile|mobile|forfait|sfr|orange|bouygues)\b/.test(txt)) return '🏠📱';          // mobile : maison + téléphone
-  if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💼💵';   // revenu : billet de banque
-  if (/\b(impot|impôt|impots|impôts|taxe|taxes|fonciere|foncière)\b/.test(txt)) return '📋🤲';   // impôts : main tendue
-  if (/versement/.test(txt))                            return '🫗';                              // versement : cruche qu'on déverse
+  if (/\beau\b/.test(txt) || txt.includes('sebvf'))    return '💧';                              // eau
+  if (/\b(electricit|électricit|uem|edf)\w*/.test(txt)) return '💡';                             // électricité
+  if (/\bgaz\b/.test(txt))                              return '🔥';                              // gaz
+  if (/\bprixtel\b/.test(txt))                          return '📱';                              // Prixtel : opérateur mobile
+  if (/\b(freebox|livebox|box)\b/.test(txt))            return '📡';                              // box internet
+  if (/\b(free\s*mobile|mobile|forfait|sfr|orange|bouygues)\b/.test(txt)) return '📱';            // mobile
+  if (/\b(retraite|gendarmerie|chomage|chômage|salaire|gemo|gémo)\b/.test(txt)) return '💶';     // revenu
+  if (/\b(impot|impôt|impots|impôts|taxe|taxes|fonciere|foncière)\b/.test(txt)) return '🧾';     // impôts
+  if (/versement/.test(txt))                            return '💵';                              // versement
   if (/retrait/.test(txt))                              return '🏧';                              // retrait : distributeur de banque
   if (/pr[ée]l[èe]vement/.test(txt))                    return '💉';                              // prélèvement : seringue
   if (/ch[èe]que/.test(txt)) {
@@ -4845,7 +4845,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=104" alt="MON COMPTE">
+          <img src="icon.png?v=105" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -4873,7 +4873,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=104" alt="MON COMPTE">
+          <img src="icon.png?v=105" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -4896,7 +4896,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=104" alt="MON COMPTE">
+        <img src="icon.png?v=105" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
