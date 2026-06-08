@@ -91,6 +91,11 @@ h2 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
 h3 { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
 .solde-amount, .patri-amount, .rbb-amount { letter-spacing: -.03em !important; font-feature-settings: "tnum" 1 !important; }
 .col-amount, .col-solde, .sii-value { font-feature-settings: "tnum" 1; }
+/* Chiffres tabulaires (colonnes alignées) sur TOUS les montants de l'app */
+.journal-amount, .upcoming-amount, .total-chip .value, .mensu-amount,
+.ma-amt, .ma-total, .rapp-val, .stats-sum-value, .stats-sec-amt,
+.ep-global-amount, .ep-card-solde-val, .cpi-amount, .ech-montant,
+.suivi-total-row td { font-variant-numeric: tabular-nums; }
 #app { height: 100vh; display: flex; flex-direction: column; }
 button { cursor: pointer; border: none; background: none; font-family: inherit; -webkit-tap-highlight-color: transparent; }
 input, select, textarea { font-family: inherit; font-size: 15px; }
@@ -115,13 +120,12 @@ a { color: var(--primary-mid); }
   box-shadow: 0 24px 64px rgba(0,0,0,.35);
 }
 .setup-logo {
-  width: 76px; height: 76px;
-  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary-mid) 100%);
-  border-radius: 22px;
-  display: flex; align-items: center; justify-content: center;
+  width: 84px; height: 84px;
+  border-radius: 22px; overflow: hidden;
   margin: 0 auto 20px;
-  box-shadow: 0 8px 24px rgba(30,64,175,.4);
+  box-shadow: 0 10px 28px rgba(15,23,42,.35);
 }
+.setup-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .setup-logo svg { width: 44px; height: 44px; }
 .setup-card h1 { font-size: 26px; font-weight: 800; color: var(--primary-dark); margin-bottom: 6px; letter-spacing: -.5px; }
 .setup-card p { color: var(--text-muted); margin-bottom: 28px; font-size: 14px; line-height: 1.6; }
@@ -618,7 +622,13 @@ a { color: var(--primary-mid); }
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
-  padding: 14px 16px 6px;
+  padding: 14px 16px 10px;
+  /* Barre de totaux collante : reste visible en haut pendant le défilement */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg);
+  box-shadow: 0 8px 12px -10px rgba(0,0,0,.35);
 }
 .suivi-info-item {
   background: white;
@@ -2198,21 +2208,59 @@ a { color: var(--primary-mid); }
   position:fixed; inset:0; z-index:200;
   display:flex; align-items:center; justify-content:center;
   background:linear-gradient(145deg,#1E3A8A 0%,#1E40AF 45%,#2563EB 100%);
-  padding:24px;
+  padding:24px; overflow:hidden;
 }
+/* Halos flous pour donner de la profondeur au fond */
+#screen-login::before, #screen-login::after {
+  content:''; position:absolute; border-radius:50%;
+  filter:blur(64px); opacity:.45; pointer-events:none;
+}
+#screen-login::before { width:320px; height:320px; background:#60A5FA; top:-90px; left:-70px; }
+#screen-login::after  { width:280px; height:280px; background:#1E3A8A; bottom:-80px; right:-60px; }
 #screen-login.hidden { display:none; }
 .login-card {
+  position:relative; z-index:1;
   background:#fff; border-radius:28px; padding:36px 28px;
   width:100%; max-width:380px; text-align:center;
   box-shadow:0 24px 64px rgba(0,0,0,.35);
 }
 .login-logo {
-  width:72px; height:72px; margin:0 auto 18px;
-  background:linear-gradient(135deg,var(--primary-dark),var(--primary-mid));
-  border-radius:20px; display:flex; align-items:center; justify-content:center;
-  box-shadow:0 6px 20px rgba(30,64,175,.4);
+  width:84px; height:84px; margin:0 auto 18px;
+  border-radius:22px; overflow:hidden;
+  box-shadow:0 10px 28px rgba(15,23,42,.35);
 }
+.login-logo img { width:100%; height:100%; object-fit:cover; display:block; }
 .login-logo svg { width:40px; height:40px; }
+
+/* Champ mot de passe avec bouton afficher/masquer */
+.pwd-wrap { position:relative; }
+.pwd-wrap input { padding-right:46px; width:100%; }
+.pwd-toggle {
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  background:none; border:none; cursor:pointer; padding:8px;
+  font-size:17px; line-height:1; opacity:.55; border-radius:8px;
+  transition:opacity .15s;
+}
+.pwd-toggle:hover { opacity:.9; }
+.pwd-toggle:active { transform:translateY(-50%) scale(.9); }
+
+/* Icône à gauche des champs (connexion) */
+.input-icon { position:relative; }
+.input-ico {
+  position:absolute; left:13px; top:50%; transform:translateY(-50%);
+  font-size:14px; opacity:.45; pointer-events:none; line-height:1;
+}
+.input-icon input { padding-left:40px; }
+
+/* Retour tactile : léger enfoncement au tap (sensation app native).
+   On ne touche pas aux `transition` existantes : le press anime via elles
+   quand `transform` y figure, ou snappe sinon (aucune régression). */
+.btn-primary:active, .btn-save:active, .btn-add:active, .btn-inscrire:active,
+.btn-cancel:active, .btn-danger:active, .btn-dup:active, .btn-pdf:active,
+.btn-purge:active, .btn-import-csv:active, .btn-pointer-tout:active,
+.compte-chip:active, .fchip:active, .total-chip:active, .upcoming-item:active,
+.suivi-info-item.clickable:active, .ma-row:active { transform: scale(.96); }
+.nav-item:active { transform: scale(.9); }
 .login-card h1 { font-size:24px; font-weight:800; color:var(--primary-dark); letter-spacing:-.4px; margin-bottom:4px; }
 .login-sub { color:var(--text-muted); font-size:13px; margin-bottom:22px; }
 .login-err { color:var(--debit); background:var(--debit-bg); border:1px solid #FECACA; border-radius:10px; padding:9px 12px; font-size:13px; margin-bottom:12px; }

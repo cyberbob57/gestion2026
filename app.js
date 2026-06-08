@@ -874,6 +874,31 @@ function animateAmount(el, targetValue, duration = 650) {
   requestAnimationFrame(step);
 }
 
+// Couleurs des graphiques calées sur le thème (clair/sombre + accent choisi)
+function _chartTheme() {
+  const dark = document.documentElement.classList.contains('theme-dark');
+  const css = getComputedStyle(document.documentElement);
+  const accent = (css.getPropertyValue('--primary-mid').trim()) || '#2563EB';
+  return {
+    dark, accent,
+    text: dark ? '#94A3B8' : '#64748B',
+    grid: dark ? 'rgba(148,163,184,.16)' : '#F1F5F9',
+    cardBg: dark ? '#1E293B' : '#ffffff',
+  };
+}
+function _rgba(hex, a) {
+  const h = hex.replace('#','').trim();
+  const f = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const n = parseInt(f, 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function _applyChartDefaults() {
+  if (typeof Chart === 'undefined') return;
+  const t = _chartTheme();
+  Chart.defaults.color = t.text;
+  Chart.defaults.font.family = '"Inter", -apple-system, system-ui, sans-serif';
+}
+
 function bindDashboard() {
   const canvas = document.getElementById('chart-solde');
   if (!canvas) return;
@@ -881,6 +906,8 @@ function bindDashboard() {
     ensureChart().then(() => { if (state.view === 'dashboard') bindDashboard(); }).catch(() => {});
     return;
   }
+  _applyChartDefaults();
+  const ct = _chartTheme();
   const labels = [], credits = [], debits = [];
   for (let i = 5; i >= 0; i--) {
     let m = state.mois - i; let y = state.annee;
@@ -897,16 +924,16 @@ function bindDashboard() {
     data: {
       labels,
       datasets: [
-        { label: 'Crédits', data: credits, backgroundColor: '#86EFAC', borderRadius: 6 },
-        { label: 'Débits',  data: debits,  backgroundColor: '#FCA5A5', borderRadius: 6 },
+        { label: 'Crédits', data: credits, backgroundColor: '#34D399', borderRadius: 8, borderSkipped: false, maxBarThickness: 38 },
+        { label: 'Débits',  data: debits,  backgroundColor: '#F87171', borderRadius: 8, borderSkipped: false, maxBarThickness: 38 },
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } } },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 }, color: ct.text } } },
       scales: {
-        x: { grid: { display: false } },
-        y: { grid: { color: '#F3F4F6' }, ticks: { callback: v => v.toLocaleString('fr-FR') + ' €' } }
+        x: { grid: { display: false }, ticks: { color: ct.text } },
+        y: { grid: { color: ct.grid }, ticks: { color: ct.text, callback: v => v.toLocaleString('fr-FR') + ' €' } }
       }
     }
   });
@@ -926,10 +953,10 @@ function bindDashboard() {
         datasets: [{
           label: 'Solde bancaire réel',
           data: pts,
-          borderColor: '#1E40AF',
-          backgroundColor: 'rgba(30,64,175,.12)',
+          borderColor: ct.accent,
+          backgroundColor: _rgba(ct.accent, .14),
           borderWidth: 2.5,
-          pointBackgroundColor: '#1E40AF',
+          pointBackgroundColor: ct.accent,
           pointRadius: 4,
           tension: .3,
           fill: true,
@@ -940,8 +967,8 @@ function bindDashboard() {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { display: false } },
-          y: { grid: { color: '#F3F4F6' }, ticks: { callback: v => v.toLocaleString('fr-FR') + ' €' } }
+          x: { grid: { display: false }, ticks: { color: ct.text } },
+          y: { grid: { color: ct.grid }, ticks: { color: ct.text, callback: v => v.toLocaleString('fr-FR') + ' €' } }
         }
       }
     });
@@ -1482,6 +1509,8 @@ function bindStats() {
   });
   const items = Object.entries(by).sort((a,b)=>b[1]-a[1]);
   if (items.length === 0) return;
+  _applyChartDefaults();
+  const ct = _chartTheme();
   const palette = ['#1E40AF','#2563EB','#3B82F6','#60A5FA','#F59E0B','#EF4444','#10B981','#8B5CF6','#EC4899','#14B8A6','#F97316','#6366F1'];
   new Chart(cv, {
     type: 'doughnut',
@@ -1489,12 +1518,12 @@ function bindStats() {
       labels: items.map(i => i[0]),
       datasets: [{ data: items.map(i => +i[1].toFixed(2)),
         backgroundColor: items.map((_,i)=>palette[i % palette.length]),
-        borderWidth: 2, borderColor: '#fff' }]
+        borderWidth: 2, borderColor: ct.cardBg }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '62%',
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 11 }, padding: 8 } },
+        legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 11 }, padding: 8, color: ct.text } },
         tooltip: { callbacks: { label: c => `${c.label}: ${c.parsed.toLocaleString('fr-FR',{minimumFractionDigits:2})} €` } }
       }
     }
@@ -2687,6 +2716,9 @@ async function saveSuiviEntry(id) {
     data.is_mensualisation = false;
     data.compte = getCompteActif();
   }
+  // Mémorise l'état AVANT modification : si on déplace la date d'une opération
+  // issue d'une mensualisation, on proposera d'aligner aussi la fiche Mensuel.
+  const oldEntry = id ? state.suivi.find(x => x.id === id) : null;
   setSyncing(true);
   let err, savedId = id;
   // Mode "Paypal en 4X — création" : on insère 4 lignes datées Éch 1/4 → Éch 4/4
@@ -2757,6 +2789,9 @@ async function saveSuiviEntry(id) {
   if (err) { showToast('Erreur : ' + err.message, 'error'); return; }
   // Enrichit automatiquement la liste des libellés si une saisie libre apparaît
   await ensureLibelleExists(data.libelle_principal, data.libelle_secondaire);
+  // Si on a déplacé la date d'une opération issue d'une mensualisation, proposer
+  // d'aligner aussi la fiche Mensuel (sinon « Synchroniser » réécrasera ce jour).
+  if (id) await proposerAlignerMensuMaster(oldEntry, data.jour, id);
   showToast(id ? 'Opération mise à jour' : 'Opération ajoutée', 'success');
   closeModal();
   // Mettre à jour le prochain numéro de chèque
@@ -2769,6 +2804,45 @@ async function saveSuiviEntry(id) {
     await setParam(cle, next);
   }
   await loadData();
+}
+
+// Quand on change la date d'une ligne du Suivi qui provient d'une mensualisation,
+// la fiche Mensuel (le « maître ») reste, elle, sur l'ancien jour. Le bouton
+// « Synchroniser » réaligne Suivi → sur Mensuel : il réécraserait donc ce nouveau
+// jour. On propose ici d'aligner aussi la fiche Mensuel + les autres mois inscrits,
+// pour que le changement « tienne ».
+async function proposerAlignerMensuMaster(oldEntry, newJour, currentId) {
+  if (!oldEntry || !oldEntry.is_mensualisation) return;          // pas une mensualisation
+  if (!newJour || parseInt(oldEntry.jour) === newJour) return;   // jour inchangé
+  const lp = oldEntry.libelle_principal || '';
+  const ls = oldEntry.libelle_secondaire || null;
+  const master = state.mensualisations.find(m =>
+    (m.libelle_principal  || '')   === lp &&
+    (m.libelle_secondaire || null) === ls);
+  if (!master || parseInt(master.jour) === newJour) return;       // pas de maître à corriger
+  const nom = [lp, ls].filter(Boolean).join(' › ') || 'cette mensualisation';
+  if (!confirm(
+    `« ${nom} » est une mensualisation (jour ${master.jour} en Mensuel).\n\n` +
+    `Mettre à jour aussi la date dans Mensuel sur le ${newJour} ` +
+    `(et les autres mois déjà inscrits) ?\n\n` +
+    `Sinon le bouton « Synchroniser » la repassera au ${master.jour}.`
+  )) return;
+  setSyncing(true);
+  // 1. La fiche maître (Mensuel) → s'applique aux mois NON encore inscrits.
+  await sb.from('mensualisations')
+    .update({ jour: newJour, updated_at: new Date().toISOString() })
+    .eq('id', master.id);
+  // 2. Les autres lignes déjà inscrites de cette mensualisation (sauf celle modifiée).
+  let q = sb.from('suivi_mensuel')
+    .update({ jour: newJour })
+    .eq('is_mensualisation', true)
+    .eq('libelle_principal', lp)
+    .neq('jour', newJour)
+    .neq('id', currentId);
+  q = ls ? q.eq('libelle_secondaire', ls) : q.is('libelle_secondaire', null);
+  await q;
+  setSyncing(false);
+  showToast(`Date alignée dans Mensuel (jour ${newJour}) ✓`, 'success');
 }
 
 async function deleteSuiviEntry(id) {
@@ -2883,7 +2957,7 @@ function renderParametres() {
       <div class="sub">Touchez le 📷 d'une catégorie ou d'une sous-catégorie pour lui attribuer un logo. Il s'affichera en début de ligne dans le Suivi (la sous-catégorie est prioritaire sur la catégorie).</div>
     </div>
     <div class="libelles-manager" id="libelles-manager">
-      ${state.libelles.map(l => {
+      ${[...state.libelles].sort((a,b) => String(a.principal||'').localeCompare(String(b.principal||''), 'fr', { sensitivity: 'base' })).map(l => {
         const secs = getSecondaires(l.principal);
         return `
         <div class="libelle-block" id="lib-block-${l.id}">
@@ -3745,7 +3819,7 @@ function updateSecondaires(principalVal, uid) {
 
 function libSelects(data = {}) {
   const uid       = ++_libUid;
-  const principals = state.libelles.map(l => l.principal);
+  const principals = state.libelles.map(l => l.principal).sort((a,b) => String(a||'').localeCompare(String(b||''), 'fr', { sensitivity: 'base' }));
   const initSecs   = getSecondaires(data.libelle_principal || '');
   return `
   <div class="form-group">
@@ -4747,6 +4821,15 @@ function escHtml(s) {
 // INIT
 // ═══════════════════════════════════════════════════════
 // ── Authentification ─────────────────────────────────
+// Affiche/masque un champ mot de passe (bouton 👁 dans .pwd-wrap)
+function togglePwd(btn, id) {
+  const inp = document.getElementById(id);
+  if (!inp) return;
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁';
+  btn.setAttribute('aria-label', show ? 'Masquer le mot de passe' : 'Afficher le mot de passe');
+}
 function showLogin(opts = {}) {
   document.getElementById('screen-setup').classList.add('hidden');
   document.getElementById('screen-app').classList.add('hidden');
@@ -4762,17 +4845,23 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <svg viewBox="0 0 44 44"><text x="22" y="32" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="26">€</text></svg>
+          <img src="icon.png?v=104" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
         <div class="form-group">
           <label>Nouveau mot de passe</label>
-          <input type="password" id="login-newpwd" autocomplete="new-password">
+          <div class="pwd-wrap">
+            <input type="password" id="login-newpwd" autocomplete="new-password">
+            <button type="button" class="pwd-toggle" aria-label="Afficher le mot de passe" onclick="togglePwd(this,'login-newpwd')">👁</button>
+          </div>
         </div>
         <div class="form-group">
           <label>Confirmer</label>
-          <input type="password" id="login-newpwd2" autocomplete="new-password">
+          <div class="pwd-wrap">
+            <input type="password" id="login-newpwd2" autocomplete="new-password">
+            <button type="button" class="pwd-toggle" aria-label="Afficher le mot de passe" onclick="togglePwd(this,'login-newpwd2')">👁</button>
+          </div>
         </div>
         <div id="login-err" class="login-err hidden"></div>
         <button class="btn-primary" onclick="doSetNewPassword()">Enregistrer →</button>
@@ -4784,7 +4873,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <svg viewBox="0 0 44 44"><text x="22" y="32" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="26">€</text></svg>
+          <img src="icon.png?v=104" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -4807,17 +4896,24 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <svg viewBox="0 0 44 44"><text x="22" y="32" text-anchor="middle" fill="#B8860B" font-family="Arial" font-weight="bold" font-size="26">€</text></svg>
+        <img src="icon.png?v=104" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
       <div class="form-group">
         <label>Email</label>
-        <input type="email" id="login-email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <div class="input-icon">
+          <span class="input-ico">✉️</span>
+          <input type="email" id="login-email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false">
+        </div>
       </div>
       <div class="form-group">
         <label>Mot de passe</label>
-        <input type="password" id="login-pwd" autocomplete="${mode==='signup'?'new-password':'current-password'}">
+        <div class="pwd-wrap input-icon">
+          <span class="input-ico">🔒</span>
+          <input type="password" id="login-pwd" autocomplete="${mode==='signup'?'new-password':'current-password'}">
+          <button type="button" class="pwd-toggle" aria-label="Afficher le mot de passe" onclick="togglePwd(this,'login-pwd')">👁</button>
+        </div>
       </div>
       <div id="login-err" class="login-err hidden"></div>
       <button class="btn-primary" onclick="${fn}()">${cta} →</button>
