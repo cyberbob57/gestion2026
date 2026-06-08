@@ -2204,20 +2204,24 @@ a { color: var(--primary-mid); }
 .cc-banner strong { font-weight:800; color:#FFE8A8; }
 
 /* ── Écran de connexion ────────────────────────────────── */
-#screen-login {
+#screen-login, #screen-lock {
   position:fixed; inset:0; z-index:200;
   display:flex; align-items:center; justify-content:center;
   background:linear-gradient(145deg,#1E3A8A 0%,#1E40AF 45%,#2563EB 100%);
   padding:24px; overflow:hidden;
 }
 /* Halos flous pour donner de la profondeur au fond */
-#screen-login::before, #screen-login::after {
+#screen-login::before, #screen-login::after,
+#screen-lock::before, #screen-lock::after {
   content:''; position:absolute; border-radius:50%;
   filter:blur(64px); opacity:.45; pointer-events:none;
 }
-#screen-login::before { width:320px; height:320px; background:#60A5FA; top:-90px; left:-70px; }
-#screen-login::after  { width:280px; height:280px; background:#1E3A8A; bottom:-80px; right:-60px; }
-#screen-login.hidden { display:none; }
+#screen-login::before, #screen-lock::before { width:320px; height:320px; background:#60A5FA; top:-90px; left:-70px; }
+#screen-login::after,  #screen-lock::after  { width:280px; height:280px; background:#1E3A8A; bottom:-80px; right:-60px; }
+#screen-login.hidden, #screen-lock.hidden { display:none; }
+/* Bouton déverrouiller : icône empreinte plus grande */
+#screen-lock .btn-primary { margin-top:6px; font-size:16px; }
+.lock-bio-icon { font-size:38px; margin:-4px 0 6px; }
 .login-card {
   position:relative; z-index:1;
   background:#fff; border-radius:28px; padding:36px 28px;

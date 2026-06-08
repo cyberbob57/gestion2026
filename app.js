@@ -3134,6 +3134,17 @@ function renderParametres() {
       </div>
       <button class="btn-small btn-danger" onclick="doLogout()">Se déconnecter</button>
     </div>
+    <div class="params-item">
+      <div class="params-item-left">
+        <div class="name">🫆 Déverrouillage par empreinte</div>
+        <div class="sub">${biometricEnabled()
+          ? 'Activé — empreinte demandée à l\'ouverture de l\'app'
+          : 'Touch ID / Windows Hello pour ouvrir l\'app (cet appareil)'}</div>
+      </div>
+      ${biometricEnabled()
+        ? `<button class="btn-small btn-danger" onclick="biometricDisable()">Désactiver</button>`
+        : `<button class="btn-small" onclick="biometricRegister()">Activer</button>`}
+    </div>
 
     <h3>Connexion Supabase</h3>
     <div class="params-item">
@@ -4845,7 +4856,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=105" alt="MON COMPTE">
+          <img src="icon.png?v=106" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -4873,7 +4884,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=105" alt="MON COMPTE">
+          <img src="icon.png?v=106" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -4896,7 +4907,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=105" alt="MON COMPTE">
+        <img src="icon.png?v=106" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5028,6 +5039,96 @@ async function init() {
   showSetup();
 }
 
+// ── Verrou biométrique (WebAuthn / Touch ID / Windows Hello) ──────────
+// Verrou LOCAL : une fois connecté (session Supabase), l'app demande
+// l'empreinte à chaque ouverture. L'empreinte ne quitte jamais l'appareil ;
+// l'identifiant de credential est stocké en localStorage (par appareil).
+function _b64url(buf) {
+  const b = btoa(String.fromCharCode(...new Uint8Array(buf)));
+  return b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function _b64urlToBuf(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const bin = atob(s + pad);
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u.buffer;
+}
+function biometricEnabled() {
+  return localStorage.getItem('biometric_lock') === '1'
+    && !!localStorage.getItem('biometric_cred_id');
+}
+async function biometricRegister() {
+  if (!window.PublicKeyCredential || !navigator.credentials) {
+    showToast('Biométrie non supportée par ce navigateur', 'error'); return;
+  }
+  let avail = false;
+  try { avail = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch (e) {}
+  if (!avail) { showToast('Aucun capteur détecté (Touch ID / Windows Hello requis)', 'error'); return; }
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: 'Gestion 2026' },                       // rp.id = domaine courant par défaut
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'gestion2026', displayName: 'Gestion 2026' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+      timeout: 60000, attestation: 'none',
+    }});
+    if (!cred) throw new Error('no credential');
+    localStorage.setItem('biometric_cred_id', _b64url(cred.rawId));
+    localStorage.setItem('biometric_lock', '1');
+    showToast('Déverrouillage par empreinte activé ✓', 'success');
+    render();
+  } catch (e) {
+    showToast('Activation annulée', 'error');
+  }
+}
+function biometricDisable() {
+  localStorage.removeItem('biometric_lock');
+  localStorage.removeItem('biometric_cred_id');
+  showToast('Déverrouillage par empreinte désactivé', 'success');
+  render();
+}
+async function biometricUnlock() {
+  const id = localStorage.getItem('biometric_cred_id');
+  if (!id) return false;
+  try {
+    const assertion = await navigator.credentials.get({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: _b64urlToBuf(id) }],
+      userVerification: 'required', timeout: 60000,
+    }});
+    return !!assertion;
+  } catch (e) { return false; }
+}
+function showLockScreen() {
+  document.getElementById('screen-setup')?.classList.add('hidden');
+  document.getElementById('screen-app')?.classList.add('hidden');
+  let s = document.getElementById('screen-lock');
+  if (!s) { s = document.createElement('div'); s.id = 'screen-lock'; document.getElementById('app').appendChild(s); }
+  s.classList.remove('hidden');
+  s.innerHTML = `
+    <div class="login-card">
+      <div class="login-logo"><img src="icon.png?v=106" alt="MON COMPTE"></div>
+      <h1>Gestion 2026</h1>
+      <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
+      <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
+      <div id="lock-err" class="login-err hidden"></div>
+      <button class="login-swap" onclick="doLogout()">Se déconnecter (mot de passe)</button>
+    </div>`;
+  setTimeout(biometricUnlockFlow, 350);   // tentative automatique
+}
+function hideLockScreen() {
+  document.getElementById('screen-lock')?.classList.add('hidden');
+}
+async function biometricUnlockFlow() {
+  const ok = await biometricUnlock();
+  if (ok) { hideLockScreen(); await onSignedIn(); return; }
+  const el = document.getElementById('lock-err');
+  if (el) { el.textContent = 'Échec du déverrouillage — réessayez ou connectez-vous par mot de passe.'; el.classList.remove('hidden'); }
+}
+
 // Aiguillage : si déjà connecté → app, sinon écran de connexion
 async function routeAuth() {
   // Écoute les changements de session (déconnexion, recovery, token rafraîchi)
@@ -5041,7 +5142,10 @@ async function routeAuth() {
     return;
   }
   const { data: { session } } = await sb.auth.getSession();
-  if (session) await onSignedIn();
+  if (session) {
+    if (biometricEnabled()) showLockScreen();   // verrou biométrique avant l'app
+    else await onSignedIn();
+  }
   else showLogin();
 }
 
