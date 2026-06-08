@@ -1,6 +1,33 @@
 'use strict';
 
 // ═══════════════════════════════════════════════════════
+// CHARGEMENT DE SCRIPTS À LA DEMANDE (perf : démarrage plus rapide)
+// ═══════════════════════════════════════════════════════
+const _scriptCache = {};
+function loadScriptOnce(src) {
+  if (_scriptCache[src]) return _scriptCache[src];
+  _scriptCache[src] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => { delete _scriptCache[src]; reject(new Error('Échec du chargement de ' + src)); };
+    document.head.appendChild(s);
+  });
+  return _scriptCache[src];
+}
+// Chart.js : chargé uniquement quand on ouvre Accueil ou Stats
+function ensureChart() {
+  if (typeof Chart !== 'undefined') return Promise.resolve();
+  return loadScriptOnce('https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.js');
+}
+// SheetJS : chargé uniquement lors d'un export Excel
+function ensureXLSX() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  return loadScriptOnce('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+}
+
+// ═══════════════════════════════════════════════════════
 // CONFIG & CONSTANTES
 // ═══════════════════════════════════════════════════════
 const MOIS_KEYS = ['jan','fev','mar','avr','mai','jun','jul','aou','sep','oct','nov','dec'];
@@ -305,6 +332,108 @@ function getPictoRules() {
     const r = JSON.parse(state.parametres['picto_rules'] || '[]');
     return Array.isArray(r) ? r : [];
   } catch { return []; }
+}
+
+// Règles de LOGOS (vraies images) définies par l'utilisateur (Paramètres)
+// Format : [{ kw, img }] où img est une data URL (base64). Stockées dans parametres.
+function getLogoRules() {
+  try {
+    const r = JSON.parse(state.parametres['logo_rules'] || '[]');
+    return Array.isArray(r) ? r : [];
+  } catch { return []; }
+}
+
+// Logos attribués PAR catégorie / sous-catégorie.
+// Format : { "Principal": dataUrl, "Principal␟Secondaire": dataUrl }
+function getCatLogos() {
+  try {
+    const o = JSON.parse(state.parametres['cat_logos'] || '{}');
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  } catch { return {}; }
+}
+function catLogoKey(principal, secondaire) {
+  const p = (principal || '').trim();
+  const s = (secondaire || '').trim();
+  return s ? `${p}␟${s}` : p;
+}
+function getCatLogo(principal, secondaire) {
+  return getCatLogos()[catLogoKey(principal, secondaire)] || '';
+}
+
+// Bibliothèque de logos stockée dans la base (réutilisable).
+// Format : [{ id, name, img }]
+function getLogoLibrary() {
+  try {
+    const a = JSON.parse(state.parametres['logo_library'] || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch { return []; }
+}
+
+// Normalisation de base : minuscules, sans accents, alphanum + espaces.
+function _normBase(s) {
+  return String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+// Neutralise le pluriel d'un mot (>3 lettres finissant par "s").
+function _singular(w) { return (w.length > 3 && w.endsWith('s')) ? w.slice(0, -1) : w; }
+// Normalisation tolérante (accents, casse, pluriels) pour comparer catégories/sous-catégories.
+function _normLogo(s) {
+  return _normBase(s).split(' ').map(_singular).join(' ');
+}
+// Mots génériques (NON distinctifs d'une marque) ignorés dans le rapprochement souple.
+// Évite qu'un mot commun comme « virement » ne fasse coller un logo à la mauvaise ligne.
+const _LOGO_STOP = new Set([
+  'voiture','voitures','contrat','entretien','assurance','assurances',
+  'virement','virements','interne','externe','versement','versements',
+  'prelevement','prelevements','frais','bancaire','bancaires','compte','comptes',
+  'epargne','impot','impots','credit','debit','retrait','retraits','depot','depots',
+  'paiement','paiements','remboursement','mensuel','annuel',
+  'de','des','du','la','le','les','l','d','et','un','une','sur','pour','par','depuis','vers'
+]);
+// Tokens distinctifs : on filtre les génériques sur la forme de base, puis on neutralise le pluriel.
+function _logoTokens(s) {
+  return _normBase(s).split(' ').filter(t => t && !_LOGO_STOP.has(t)).map(_singular);
+}
+
+// Renvoie la data URL du logo d'une opération.
+// Priorité : sous-catégorie exacte → marque proche (même catégorie) → catégorie → mot-clé.
+// La comparaison ignore accents, casse, pluriels et ponctuation.
+function entryLogo(o) {
+  const p = (o && o.libelle_principal) || '';
+  const s = (o && o.libelle_secondaire) || '';
+  const cats = getCatLogos();
+  const np = _normLogo(p), ns = _normLogo(s);
+  let exactSub = '', exactCat = '';
+  const sameCatSubs = []; // sous-cat de la même catégorie ayant un logo
+  for (const [key, img] of Object.entries(cats)) {
+    if (!img) continue;
+    const parts = key.split('␟');
+    if (_normLogo(parts[0]) !== np) continue;
+    const ks = parts.length > 1 ? _normLogo(parts[1]) : '';
+    if (!ks) { if (!exactCat) exactCat = img; continue; }
+    if (ks === ns && !exactSub) exactSub = img;
+    sameCatSubs.push({ tokens: _logoTokens(parts[1]), img });
+  }
+  if (exactSub) return exactSub;
+  // Rapprochement par marque : meilleure intersection de mots avec les sous-cat de la même catégorie
+  if (ns) {
+    const opTok = _logoTokens(s);
+    let best = '', bestScore = 0;
+    for (const c of sameCatSubs) {
+      const score = c.tokens.filter(t => opTok.includes(t)).length;
+      if (score > bestScore) { bestScore = score; best = c.img; }
+    }
+    if (best && bestScore >= 1) return best;
+  }
+  if (exactCat) return exactCat;
+  // Repli par mot-clé (contient, normalisé)
+  const txt = _normLogo([s, o && o.libelle_libre, p].filter(Boolean).join(' '));
+  for (const r of getLogoRules()) {
+    const kw = _normLogo(r && r.kw || '');
+    if (kw && r.img && txt.includes(kw)) return r.img;
+  }
+  return '';
 }
 
 // Pictogramme précis : différencie notamment les véhicules par leur libellé
@@ -747,7 +876,11 @@ function animateAmount(el, targetValue, duration = 650) {
 
 function bindDashboard() {
   const canvas = document.getElementById('chart-solde');
-  if (!canvas || typeof Chart === 'undefined') return;
+  if (!canvas) return;
+  if (typeof Chart === 'undefined') {
+    ensureChart().then(() => { if (state.view === 'dashboard') bindDashboard(); }).catch(() => {});
+    return;
+  }
   const labels = [], credits = [], debits = [];
   for (let i = 5; i >= 0; i--) {
     let m = state.mois - i; let y = state.annee;
@@ -1194,6 +1327,8 @@ function renderSuivi() {
         : `<button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>`;
     })() : ''}
     <button class="btn-pointer-tout" onclick="pointerTout()" title="Pointer toutes les opérations">✓✓</button>
+    <button class="btn-import-csv" onclick="importCsvAuto()" title="Importer un relevé bancaire CSV : rapprochement automatique, création des opérations manquantes et pointage en un clic">🤖 CSV auto</button>
+    <button class="btn-import-csv" onclick="showImportCSV()" title="Importer avec aperçu et choix manuel" style="background:transparent;border:1px solid currentColor;font-size:11px;padding:6px 10px;">📥 CSV (review)</button>
     <button class="btn-add" onclick="showAddSuiviEntry()">＋ Saisir</button>
     <button class="btn-pdf" onclick="exportSuiviPDF()" title="Exporter le mois en PDF">📄</button>
     <button class="btn-purge" onclick="purgerMois()" title="Effacer toutes les opérations du mois">🗑</button>
@@ -1270,16 +1405,18 @@ function renderSuivi() {
             <div class="jour-num">${e.jour || '—'}</div>
           </td>
           <td class="col-libelle">
-            <div class="lib-stack">
-              <div class="lib-line lib-line-1">
-                <span class="lib-cat-icon">${entryIcon(e)}</span>
-                <span class="lib-principal">${escHtml(e.libelle_principal || '')}</span>
+            <div class="lib-row">
+              ${(() => { const lg = entryLogo(e); return lg ? `<span class="lib-logo"><img src="${lg}" alt=""></span>` : `<span class="lib-logo lib-logo-empty"></span>`; })()}
+              <div class="lib-stack">
+                <div class="lib-line lib-line-1">
+                  <span class="lib-principal">${escHtml(e.libelle_principal || '')}</span>
+                </div>
+                ${e.libelle_secondaire ? `<div class="lib-line lib-line-2"><span class="lib-secondaire">${escHtml(e.libelle_secondaire)}</span></div>` : ''}
+                ${e.libelle_libre ? `<div class="lib-libre">${escHtml(e.libelle_libre)}</div>` : ''}
               </div>
-              ${e.libelle_secondaire ? `<div class="lib-line lib-line-2"><span class="lib-secondaire">${escHtml(e.libelle_secondaire)}</span></div>` : ''}
-              ${e.libelle_libre ? `<div class="lib-libre">${escHtml(e.libelle_libre)}</div>` : ''}
             </div>
           </td>
-          <td class="col-type">${(()=>{ const {base,echeance}=parsePaypal4X(e.type_operation||''); return echeance ? `${escHtml(base)} <span class="echeance-badge">Éch.${echeance}/4</span>` : escHtml(base); })()}</td>
+          <td class="col-type">${(()=>{ const {base,echeance}=parsePaypal4X(e.type_operation||''); const ico=base?entryIcon({ libelle_principal: base }):''; const icoHtml=ico?`<span class="mp-type-ico">${ico}</span>`:''; const txt=echeance ? `${escHtml(base)} <span class="echeance-badge">Éch.${echeance}/4</span>` : escHtml(base); return `<span class="mp-type-cell">${icoHtml}${txt}</span>`; })()}</td>
           <td class="col-cheque">${escHtml(e.num_cheque || '')}</td>
           <td class="col-pointe">
             <span class="pointe-badge${e.pointe === '✓' ? ' pointed' : ''}"
@@ -1329,10 +1466,15 @@ function quickAdd() {
 // Graphique en anneau (donut) de répartition des dépenses
 function bindStats() {
   const cv = document.getElementById('stats-donut');
-  if (!cv || typeof Chart === 'undefined') return;
+  if (!cv) return;
+  if (typeof Chart === 'undefined') {
+    ensureChart().then(() => { if (state.view === 'stats') bindStats(); }).catch(() => {});
+    return;
+  }
+  const compte = window._statsCompte || 'courant';
   const entries = (window._statsView === 'annuel')
-    ? state.suivi.filter(e => e.annee === state.annee && !e.source_id && suiviCompte(e) === 'courant')
-    : state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee && !e.source_id && suiviCompte(e) === 'courant');
+    ? state.suivi.filter(e => e.annee === state.annee && !e.source_id && suiviCompte(e) === compte)
+    : state.suivi.filter(e => e.mois === state.mois + 1 && e.annee === state.annee && !e.source_id && suiviCompte(e) === compte);
   const by = {};
   entries.forEach(e => {
     const d = parseFloat(e.debit || 0);
@@ -1402,6 +1544,852 @@ async function pointerTout() {
   await loadData();
 }
 
+// ═══════════════════════════════════════════════════════
+// IMPORT CSV BANCAIRE → auto-pointage + solde bancaire
+// Formats supportés (auto-détection séparateur ; , et colonnes par heuristique) :
+//   • Banque Postale : Date;Libellé;Débit;Crédit;Solde
+//   • Boursorama    : dateOp;dateVal;label;category;amount
+//   • Crédit Agric. : Date;Libelle;Debit;Credit;Solde
+//   • BNP / CIC     : Date;Libelle;Debit;Credit
+//   • Format Amount unique (négatif = débit) ou colonnes Débit/Crédit séparées
+// ═══════════════════════════════════════════════════════
+function _parseDateFR(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  // DD/MM/YYYY ou DD-MM-YYYY ou DD.MM.YYYY
+  let m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+  if (m) {
+    const d = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1;
+    let y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    return new Date(y, mo, d);
+  }
+  // YYYY-MM-DD ou YYYY/MM/DD
+  m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  return null;
+}
+
+function _parseMontantFR(s) {
+  if (!s && s !== 0) return NaN;
+  let str = String(s).trim();
+  if (!str || str === '-') return NaN;
+  // Vire espaces (séparateurs milliers) et symbole €
+  str = str.replace(/[\s €]/g, '').replace(/[A-Za-z]/g, '');
+  // Garde signe
+  const neg = str.startsWith('-');
+  if (neg) str = str.slice(1);
+  // Si présence de , et . : la dernière est la décimale (format inversé)
+  if (str.includes(',') && str.includes('.')) {
+    const lastC = str.lastIndexOf(','), lastD = str.lastIndexOf('.');
+    if (lastC > lastD) str = str.replace(/\./g, '').replace(',', '.');
+    else str = str.replace(/,/g, '');
+  } else {
+    str = str.replace(',', '.');
+  }
+  const n = parseFloat(str);
+  return isNaN(n) ? NaN : (neg ? -n : n);
+}
+
+// Parse un montant saisi dans un champ (gère la virgule décimale FR, les espaces et €).
+// Renvoie null si le champ est vide ou invalide.
+function parseMontant(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const n = _parseMontantFR(s);
+  return isNaN(n) ? null : n;
+}
+
+function _splitCsvLine(line, sep) {
+  const out = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (c === '"') inQ = false;
+      else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === sep) { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+function parseCSVContent(text) {
+  // Normalise les fins de ligne et retire BOM
+  text = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  const lines = text.split('\n').filter(l => l.trim());
+  if (!lines.length) return { headers: [], rows: [], soldeBancaire: null };
+
+  // Détecte séparateur : compare ; , et \t sur la première ligne data-likely
+  const sample = lines.slice(0, Math.min(5, lines.length)).join('\n');
+  const counts = { ';': (sample.match(/;/g) || []).length,
+                   ',': (sample.match(/,/g) || []).length,
+                   '\t': (sample.match(/\t/g) || []).length };
+  const sep = Object.entries(counts).sort((a,b) => b[1] - a[1])[0][0];
+
+  // Détecte ligne d'en-tête : on cherche LA ligne dans les 20 premières qui
+  // contient le plus de mots-clés métier (date, libellé, débit, crédit, etc.).
+  // Cette heuristique survit aux métadonnées en début de fichier (compte, période…).
+  const normCell = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/['"]/g, '');
+  const KEYWORDS = ['date','libelle','libell','label','description','intitule','operation','motif',
+                    'debit','depense','retrait','credit','recette','depot','montant','amount','somme','solde','balance'];
+  let headerIdx = -1, headers = [], bestScore = 0;
+  for (let i = 0; i < Math.min(20, lines.length); i++) {
+    const cells = _splitCsvLine(lines[i], sep);
+    if (cells.length < 2) continue;
+    const cellsN = cells.map(normCell);
+    let score = 0;
+    KEYWORDS.forEach(kw => { if (cellsN.some(c => c.includes(kw))) score++; });
+    if (score > bestScore) { bestScore = score; headerIdx = i; headers = cells; }
+  }
+  // Si aucun mot-clé reconnu (≥2 expected) → ordre standard FR : Date | Libellé | Débit | Crédit
+  if (bestScore < 2) {
+    headers = ['col0','col1','col2','col3','col4','col5'];
+    headerIdx = -1;
+  }
+
+  // Détecte les indices des colonnes par mots-clés sur en-tête
+  const norm = s => normCell(s);
+  const findIdx = (...kws) => headers.findIndex(h => kws.some(k => norm(h).includes(k)));
+  const idxDate    = findIdx('date');
+  const idxLib     = findIdx('libelle','libell','label','description','intitule','operation','motif');
+  const idxDebit   = findIdx('debit','depense','retrait');
+  const idxCredit  = findIdx('credit','recette','depot');
+  const idxMontant = findIdx('montant','amount','somme');
+  const idxSolde   = findIdx('solde','balance');
+
+  // Si aucune colonne reconnue, fallback : suppose Date | Libellé | Débit | Crédit (ordre standard FR)
+  const fallback = idxDate < 0 && idxLib < 0;
+
+  // ── Extraction du SOLDE depuis les métadonnées de début de fichier ──
+  // (Banque Postale et autres mettent "Solde (EUROS);1234,56" en haut, avant le header)
+  let metaSolde = null;
+  if (headerIdx > 0) {
+    for (let i = 0; i < headerIdx; i++) {
+      const cells = _splitCsvLine(lines[i], sep);
+      const keyN = normCell(cells[0] || '');
+      if (keyN.includes('solde') || keyN.includes('balance')) {
+        for (let j = 1; j < cells.length; j++) {
+          const v = _parseMontantFR(cells[j]);
+          if (!isNaN(v)) { metaSolde = v; break; }
+        }
+        if (metaSolde !== null) break;
+      }
+    }
+  }
+
+  const rows = [];
+  let lastSolde = null;
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cells = _splitCsvLine(lines[i], sep);
+    if (cells.length < 2) continue;
+    let date, libelle = '', debit = 0, credit = 0;
+    if (fallback) {
+      date    = _parseDateFR(cells[0]);
+      libelle = cells[1] || '';
+      const d = _parseMontantFR(cells[2]);
+      const c = _parseMontantFR(cells[3]);
+      if (!isNaN(d) && d > 0) debit  = d;
+      if (!isNaN(c) && c > 0) credit = c;
+    } else {
+      date    = idxDate >= 0 ? _parseDateFR(cells[idxDate]) : null;
+      libelle = idxLib  >= 0 ? cells[idxLib] : (cells[1] || '');
+      if (idxMontant >= 0) {
+        const m = _parseMontantFR(cells[idxMontant]);
+        if (!isNaN(m)) { if (m < 0) debit = Math.abs(m); else credit = m; }
+      } else {
+        const d = idxDebit  >= 0 ? _parseMontantFR(cells[idxDebit])  : NaN;
+        const c = idxCredit >= 0 ? _parseMontantFR(cells[idxCredit]) : NaN;
+        if (!isNaN(d) && d > 0) debit  = d;
+        if (!isNaN(c) && c > 0) credit = c;
+      }
+    }
+    if (!date || (debit === 0 && credit === 0)) continue;
+    if (idxSolde >= 0) {
+      const s = _parseMontantFR(cells[idxSolde]);
+      if (!isNaN(s)) lastSolde = s;
+    }
+    rows.push({ date, libelle: libelle.trim(), debit, credit, amount: credit - debit });
+  }
+  // Solde bancaire : la valeur Solde de la dernière ligne du CSV (ou la première,
+  // selon l'ordre — la plupart des banques mettent l'opération récente en haut)
+  // Solde bancaire : priorité aux métadonnées (Banque Postale style),
+  // sinon la valeur Solde de la dernière ligne data du CSV.
+  const soldeBancaire = metaSolde !== null ? metaSolde : lastSolde;
+  return { headers, rows, soldeBancaire };
+}
+
+function _normalizeLibelle(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Score précalc : ne re-normalise pas et ne reconstruit pas Date à chaque appel.
+function _matchScoreCached(csv, dbCache) {
+  const daysDiff = Math.abs((csv.date - dbCache.date) / 86400000);
+  if (daysDiff > 5) return 0;
+  if (Math.abs(csv.amount - dbCache.amount) > 0.01) return 0;
+  let score = 10 - daysDiff * 1.5;
+  if (csv.wordsNorm.length && dbCache.lib) {
+    let matches = 0;
+    for (const w of csv.wordsNorm) if (dbCache.lib.includes(w)) matches++;
+    score += matches * 0.5;
+  }
+  return score;
+}
+
+function autoMatchCSV(csvRows, dbOps) {
+  // Pré-calcule pour chaque dbOp : date, montant net, libellé normalisé.
+  // Pré-calcule pour chaque csvRow : mots du libellé normalisés.
+  // Indexe les dbOps par bucket de montant arrondi pour skipper les non-candidats.
+  const dbCache = dbOps.map(op => {
+    const debit  = parseFloat(op.debit  || 0);
+    const credit = parseFloat(op.credit || 0);
+    return {
+      id: op.id,
+      date: new Date(op.annee, op.mois, op.jour),
+      amount: credit - debit,
+      lib: _normalizeLibelle([op.libelle_principal, op.libelle_secondaire, op.libelle_libre, op.type_operation].filter(Boolean).join(' '))
+    };
+  });
+  // Bucket par montant centimes (clé = Math.round(amount * 100))
+  // Cherche les buckets [amount-1, amount, amount+1] pour tolérer ±0.01€
+  const byAmount = new Map();
+  for (const c of dbCache) {
+    const k = Math.round(c.amount * 100);
+    if (!byAmount.has(k)) byAmount.set(k, []);
+    byAmount.get(k).push(c);
+  }
+  const csvCache = csvRows.map(r => {
+    const lib = _normalizeLibelle(r.libelle);
+    return { date: r.date, amount: r.amount, wordsNorm: lib ? lib.split(' ').filter(w => w.length > 2) : [] };
+  });
+
+  const taken = new Set();
+  const matches = [];
+  csvCache.forEach((csv, i) => {
+    const targetK = Math.round(csv.amount * 100);
+    // Candidats : buckets ±1 centime (tolérance 0.01€)
+    const candidates = [];
+    for (let dk = -1; dk <= 1; dk++) {
+      const b = byAmount.get(targetK + dk);
+      if (b) for (const c of b) if (!taken.has(c.id)) candidates.push(c);
+    }
+    let best = null, bestScore = 0;
+    for (const c of candidates) {
+      const sc = _matchScoreCached(csv, c);
+      if (sc > bestScore) { bestScore = sc; best = c; }
+    }
+    if (best) {
+      taken.add(best.id);
+      matches.push({ csvIdx: i, dbId: best.id, score: bestScore });
+    }
+  });
+  return matches;
+}
+
+// Conservé pour compat éventuelle (non utilisé dans le hot path)
+function _matchScore(csvRow, dbOp) {
+  const csvDate = csvRow.date;
+  const dbDate  = new Date(dbOp.annee, dbOp.mois, dbOp.jour);
+  const daysDiff = Math.abs((csvDate - dbDate) / 86400000);
+  if (daysDiff > 5) return 0;
+  const dbDebit  = parseFloat(dbOp.debit  || 0);
+  const dbCredit = parseFloat(dbOp.credit || 0);
+  const dbAmount = dbCredit - dbDebit;
+  if (Math.abs(csvRow.amount - dbAmount) > 0.01) return 0;
+  let score = 10 - daysDiff * 1.5;
+  const csvLib = _normalizeLibelle(csvRow.libelle);
+  const dbLib  = _normalizeLibelle([dbOp.libelle_principal, dbOp.libelle_secondaire, dbOp.libelle_libre, dbOp.type_operation].filter(Boolean).join(' '));
+  if (csvLib && dbLib) {
+    const csvWords = csvLib.split(' ').filter(w => w.length > 2);
+    const matches  = csvWords.filter(w => dbLib.includes(w)).length;
+    score += matches * 0.5;
+  }
+  return score;
+}
+
+// 🤖 IMPORT CSV AUTO : 1 clic → choix fichier → rapprochement + création + pointage,
+// pas de modale d'aperçu, juste un toast récapitulatif.
+function importCsvAuto() {
+  // Crée un input file invisible et déclenche le picker immédiatement
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.csv,text/csv,text/plain,.txt';
+  input.style.display = 'none';
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    document.body.removeChild(input);
+    if (!file) return;
+    await _runCsvAutoFlow(file);
+  });
+  document.body.appendChild(input);
+  input.click();
+}
+
+async function _runCsvAutoFlow(file) {
+  showToast(`📥 Lecture de ${file.name}…`, 'info');
+  try {
+    const text = await _readCsvSmart(file);
+    const parsed = parseCSVContent(text);
+    if (!parsed.rows.length) {
+      showToast('Aucune opération détectée dans le CSV', 'error');
+      return;
+    }
+    const compte = getCompteActif();
+    const monthOps = getSuiviMois().filter(e => suiviCompte(e) === compte);
+    const autoMatches = autoMatchCSV(parsed.rows, monthOps);
+    const matchedSet = new Set(autoMatches.map(m => m.csvIdx));
+    const toCreateIdx = parsed.rows.map((_, i) => i).filter(i => !matchedSet.has(i));
+
+    setSyncing(true);
+    // 1. Créer les nouvelles ops (déjà pointées)
+    if (toCreateIdx.length) {
+      const rows = toCreateIdx.map(i => {
+        const r = parsed.rows[i];
+        const d = r.date;
+        return {
+          annee: d.getFullYear(),
+          mois: d.getMonth() + 1,
+          jour: d.getDate(),
+          libelle_principal: 'Import CSV',
+          libelle_libre: (r.libelle || '').slice(0, 200),
+          debit:  r.amount < 0 ? Math.abs(r.amount) : null,
+          credit: r.amount > 0 ? r.amount : null,
+          compte,
+          pointe: '✓',
+          is_mensualisation: false,
+        };
+      });
+      const { error } = await sb.from('suivi_mensuel').insert(rows);
+      if (error) { setSyncing(false); showToast('Erreur création : ' + error.message, 'error'); return; }
+    }
+    // 2. Pointer les ops auto-matchées (existantes)
+    if (autoMatches.length) {
+      await Promise.all(autoMatches.map(m =>
+        sb.from('suivi_mensuel').update({ pointe: '✓' }).eq('id', m.dbId)
+      ));
+    }
+    // 3. Solde si détecté
+    if (parsed.soldeBancaire !== null) {
+      await setSoldeBancaireDirect(parsed.soldeBancaire);
+    }
+    setSyncing(false);
+    const parts = [];
+    if (autoMatches.length) parts.push(`✓ ${autoMatches.length} pointée(s)`);
+    if (toCreateIdx.length) parts.push(`✨ ${toCreateIdx.length} créée(s)`);
+    if (parsed.soldeBancaire !== null) parts.push(`💰 solde ${fmt(parsed.soldeBancaire)}`);
+    showToast(parts.length ? parts.join(' · ') : 'Rien à faire', 'success');
+    await loadData();
+  } catch (err) {
+    setSyncing(false);
+    showToast('Erreur : ' + (err.message || err), 'error');
+    console.error('[CSV auto] Erreur :', err);
+  }
+}
+
+function showImportCSV() {
+  console.log('[CSV] showImportCSV()');
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal-header">
+      <h3>📥 Importer un relevé bancaire CSV</h3>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="csv-step" id="csv-step-1">
+        <p class="csv-hint">
+          Téléversez le fichier CSV de votre banque pour pointer
+          les opérations correspondantes du mois <strong>${MOIS_FR[state.mois]} ${state.annee}</strong>.
+          <br><small>Formats acceptés : Banque Postale, Boursorama, BNP, Crédit Agricole, etc.</small>
+        </p>
+        <!-- L'input file est positionné EN COUVERTURE de la drop zone, opacity:0.
+             Plus fiable que display:none + label[for] qui casse sur certains navigateurs. -->
+        <div class="csv-drop" id="csv-drop">
+          <span style="font-size:36px;pointer-events:none">📄</span>
+          <span style="pointer-events:none">Cliquer pour choisir un fichier CSV</span>
+          <small style="pointer-events:none">ou glisser-déposer ici</small>
+          <input type="file" id="csv-file" accept=".csv,text/csv,text/plain,.txt"
+                 onchange="window.handleCSVFile(this.files[0])"
+                 style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0">
+        </div>
+        <div id="csv-error-msg" style="display:none;margin-top:10px;padding:10px;background:#FEE2E2;color:#991B1B;border-radius:8px;font-size:12px"></div>
+      </div>
+      <div id="csv-step-2" style="display:none"></div>
+    </div>`;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+
+  // Drag & drop sur la drop zone — attaché APRÈS injection du DOM
+  setTimeout(() => {
+    const drop = document.getElementById('csv-drop');
+    if (!drop) { console.error('[CSV] #csv-drop introuvable'); return; }
+    console.log('[CSV] Drop zone bindée');
+    drop.addEventListener('dragover',  e => { e.preventDefault(); e.stopPropagation(); drop.classList.add('drag'); });
+    drop.addEventListener('dragenter', e => { e.preventDefault(); e.stopPropagation(); drop.classList.add('drag'); });
+    drop.addEventListener('dragleave', e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag'); });
+    drop.addEventListener('drop', e => {
+      e.preventDefault(); e.stopPropagation();
+      drop.classList.remove('drag');
+      console.log('[CSV] Drop reçu, fichiers :', e.dataTransfer && e.dataTransfer.files);
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+        window.handleCSVFile(e.dataTransfer.files[0]);
+      } else {
+        _csvShowError('Aucun fichier détecté dans le glisser-déposer.');
+      }
+    });
+  }, 50);
+}
+
+// Helper pour afficher une erreur DANS la modal (plus visible qu'un toast)
+function _csvShowError(msg) {
+  const el = document.getElementById('csv-error-msg');
+  if (el) { el.textContent = '❌ ' + msg; el.style.display = ''; }
+  console.error('[CSV]', msg);
+}
+
+// Expose handleCSVFile sur window pour que les attributs onchange/inline marchent
+// quel que soit le scope au moment de l'évaluation (les attributs HTML cherchent
+// la fonction sur window, et si elle est dans un scope local elle est invisible).
+window.handleCSVFile = (typeof handleCSVFile !== 'undefined') ? handleCSVFile : null;
+
+async function _readCsvSmart(file) {
+  // Détecte l'encodage : essaie UTF-8 ; si caractères remplacement (�) →
+  // retry en Windows-1252 (très courant pour les exports bancaires français,
+  // notamment Banque Postale, Crédit Agricole, BNP).
+  const buf = await file.arrayBuffer();
+  let txt = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+  // Détecte UTF-8 cassé : présence du caractère replacement OU séquences
+  // typiques Latin-1 mal interprétées (e.g. "Ã©" = é en CP1252 lu UTF-8)
+  const hasReplacement = txt.includes('�');
+  const hasLatin1Junk  = /[ÈÌÍÎÏÒÓÔÕÖ]\s*[a-z]/.test(txt) && !/[éèêëàâäîïôöùûüç]/i.test(txt);
+  if (hasReplacement || hasLatin1Junk) {
+    try {
+      const t2 = new TextDecoder('windows-1252', { fatal: false }).decode(buf);
+      txt = t2;
+      console.log('[CSV] Encodage détecté : Windows-1252');
+    } catch (e) {
+      console.warn('[CSV] Decoder windows-1252 indisponible, garde UTF-8 partiel');
+    }
+  } else {
+    console.log('[CSV] Encodage détecté : UTF-8');
+  }
+  return txt;
+}
+
+async function handleCSVFile(file) {
+  if (!file) { _csvShowError('Aucun fichier reçu.'); return; }
+  console.log('[CSV] Fichier chargé :', file.name, file.size, 'bytes', file.type);
+  // Indique visuellement le chargement (le parsing peut prendre 1-2s sur gros CSV)
+  const drop = document.getElementById('csv-drop');
+  if (drop) drop.innerHTML = '<span style="font-size:36px">⏳</span><span>Lecture en cours…</span><small>' + escHtml(file.name) + '</small>';
+  try {
+    const t0 = performance.now();
+    const text = await _readCsvSmart(file);
+    const t1 = performance.now();
+    const parsed = parseCSVContent(text);
+    const t2 = performance.now();
+    console.log('[CSV] Parser résultat :', {
+      headers: parsed.headers,
+      nbRows: parsed.rows.length,
+      firstRows: parsed.rows.slice(0, 3),
+      soldeBancaire: parsed.soldeBancaire
+    });
+    if (!parsed.rows.length) {
+      _csvDebugPanel(file, text, parsed);
+      return;
+    }
+    const monthOps = getSuiviMois().filter(e => suiviCompte(e) === getCompteActif());
+    const t3 = performance.now();
+    const autoMatches = autoMatchCSV(parsed.rows, monthOps);
+    const t4 = performance.now();
+    console.log(`[CSV] Perf : read=${(t1-t0).toFixed(0)}ms · parse=${(t2-t1).toFixed(0)}ms · loadOps=${(t3-t2).toFixed(0)}ms (${monthOps.length} ops) · match=${(t4-t3).toFixed(0)}ms (${parsed.rows.length} rows)`);
+    // `pairings` : csvIdx → { dbId, source: 'auto'|'manual'|null } (null = pas pointé)
+    const pairings = parsed.rows.map((_, i) => {
+      const m = autoMatches.find(x => x.csvIdx === i);
+      return m ? { dbId: m.dbId, source: 'auto' } : null;
+    });
+    // Par défaut : mode MANUEL (l'utilisateur pointe lui-même).
+    // L'auto-matching est juste pré-rempli comme suggestion qu'il peut accepter,
+    // modifier ou rejeter — il y a aussi un bouton 🤖 si tout est OK.
+    window._csvImport = { file: file.name, parsed, pairings, monthOps, mode: 'manual' };
+    const t5 = performance.now();
+    renderCSVPreview();
+    const t6 = performance.now();
+    console.log(`[CSV] Render preview : ${(t6-t5).toFixed(0)}ms`);
+  } catch (err) {
+    _csvShowError('Erreur lors du traitement : ' + (err.message || err));
+    console.error('[CSV] Stack trace :', err);
+    // Restaure la drop zone pour permettre un autre essai
+    const drop = document.getElementById('csv-drop');
+    if (drop) drop.innerHTML = `
+      <span style="font-size:36px;pointer-events:none">📄</span>
+      <span style="pointer-events:none">Cliquer pour réessayer</span>
+      <small style="pointer-events:none">ou glisser-déposer ici</small>
+      <input type="file" id="csv-file" accept=".csv,text/csv,text/plain,.txt"
+             onchange="window.handleCSVFile(this.files[0])"
+             style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0">`;
+  }
+}
+
+function _csvStats() {
+  const { parsed, pairings, monthOps } = window._csvImport;
+  const matched      = pairings.filter(p => p && p.dbId).length;
+  const toCreate     = pairings.filter(p => p && p.source === 'new').length;
+  const unmatchedCsv = parsed.rows.length - matched - toCreate;
+  const dbIdsTaken   = new Set(pairings.filter(p => p && p.dbId).map(p => p.dbId));
+  const unmatchedDb  = monthOps.filter(o => !dbIdsTaken.has(o.id) && o.pointe !== '✓').length;
+  return { matched, toCreate, unmatchedCsv, unmatchedDb };
+}
+
+function renderCSVMode() {
+  const { file, parsed, pairings } = window._csvImport;
+  const { matched, unmatchedCsv } = _csvStats();
+  const stepEl = document.getElementById('csv-step-2');
+  document.getElementById('csv-step-1').style.display = 'none';
+  stepEl.style.display = '';
+  stepEl.innerHTML = `
+    <div class="csv-summary">
+      <div class="csv-summary-file">📄 <strong>${escHtml(file)}</strong> · ${parsed.rows.length} opération(s) lue(s)</div>
+      <div class="csv-mode-info">
+        L'app a auto-détecté <strong>${matched}</strong> correspondance(s) sur ${parsed.rows.length}.
+        ${unmatchedCsv > 0 ? `<br><small>${unmatchedCsv} ligne(s) CSV sans correspondance trouvée — vérifie en mode manuel.</small>` : ''}
+      </div>
+    </div>
+    <div class="csv-mode-choice">
+      <button class="csv-mode-btn auto" onclick="window._csvImport.mode='auto'; renderCSVPreview()">
+        <div class="csv-mode-icon">🤖</div>
+        <div class="csv-mode-title">Automatique</div>
+        <div class="csv-mode-desc">Applique les ${matched} correspondance(s) trouvées en un clic.<br>Idéal si le CSV est propre.</div>
+      </button>
+      <button class="csv-mode-btn manual" onclick="window._csvImport.mode='manual'; renderCSVPreview()">
+        <div class="csv-mode-icon">✋</div>
+        <div class="csv-mode-title">Manuel</div>
+        <div class="csv-mode-desc">Vérifie/modifie chaque ligne avant d'appliquer.<br>Choisis manuellement les correspondances ratées.</div>
+      </button>
+    </div>
+    <div class="csv-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+    </div>`;
+}
+
+function renderCSVPreview() {
+  const { file, parsed, pairings, monthOps, mode } = window._csvImport;
+  const { matched, toCreate, unmatchedCsv, unmatchedDb } = _csvStats();
+  const isManual = mode === 'manual';
+  const dbIdsTaken = new Set(pairings.filter(p => p && p.dbId).map(p => p.dbId));
+  // Map id → op pour lookup O(1) au lieu de monthOps.find() à chaque ligne
+  const opsById = new Map(monthOps.map(o => [o.id, o]));
+
+  // Bascule la modale : cache l'étape 1 (drop zone) et affiche l'étape 2 (résultats)
+  const step1 = document.getElementById('csv-step-1');
+  if (step1) step1.style.display = 'none';
+  const stepEl = document.getElementById('csv-step-2');
+  stepEl.style.display = '';
+  stepEl.innerHTML = `
+    <div class="csv-summary">
+      <div class="csv-summary-file">
+        📄 <strong>${escHtml(file)}</strong> · ${parsed.rows.length} op.
+        <button class="csv-auto-btn" onclick="csvDoAutoMatch()" title="Accepte toutes les suggestions automatiques et pointe en un clic">🤖 Tout auto-pointer</button>
+      </div>
+      <div class="csv-instructions">
+        ✋ <strong>Mode manuel</strong> — vérifie chaque ligne. Boutons : <kbd>↻</kbd> ou <kbd>＋</kbd> pour choisir une op · <kbd>✗</kbd> pour ne pas pointer.
+      </div>
+      <div class="csv-stats">
+        <div class="csv-stat ok"><div class="csv-stat-val">${matched}</div><div class="csv-stat-lbl">✓ À pointer</div></div>
+        <div class="csv-stat new"><div class="csv-stat-val">${toCreate}</div><div class="csv-stat-lbl">✨ À créer</div></div>
+        <div class="csv-stat warn"><div class="csv-stat-val">${unmatchedCsv}</div><div class="csv-stat-lbl">? CSV non liées</div></div>
+        <div class="csv-stat info"><div class="csv-stat-val">${unmatchedDb}</div><div class="csv-stat-lbl">○ Ops libres</div></div>
+      </div>
+      ${unmatchedCsv > 0 ? `<div style="text-align:center;margin:8px 0"><button class="btn-secondary" onclick="csvMarkAllNew()">✨ Créer toutes les ${unmatchedCsv} non liées</button></div>` : ''}
+      <div class="csv-solde-hint">
+        💰 <strong>Solde bancaire de ${MOIS_FR[state.mois]} ${state.annee}</strong>
+        ${parsed.soldeBancaire !== null
+          ? `<br><small>Détecté en fin de relevé : <strong>${fmt(parsed.soldeBancaire)}</strong></small>` : ''}
+        <div class="csv-solde-input-row">
+          <input type="text" inputmode="decimal" id="csv-solde-input"
+                 placeholder="${parsed.soldeBancaire !== null ? fmt(parsed.soldeBancaire).replace(/\s/g,'') : '0,00'}"
+                 value="">
+          <span>€</span>
+          ${parsed.soldeBancaire !== null
+            ? `<button class="btn-mini" onclick="document.getElementById('csv-solde-input').value=${parsed.soldeBancaire}">Reprendre du CSV</button>` : ''}
+        </div>
+        <small class="csv-solde-help">Saisis le solde affiché sur ton relevé bancaire. Laisse vide pour ne pas le modifier.</small>
+      </div>
+    </div>
+    <div class="csv-table-wrap">
+      <table class="csv-preview-table">
+        <thead><tr>
+          <th>Date</th><th>Libellé CSV</th><th>Montant</th><th>Correspondance${isManual?' (cliquable)':''}</th>
+        </tr></thead>
+        <tbody>
+          ${parsed.rows.map((r, i) => {
+            const p = pairings[i];
+            const op = p && p.dbId ? opsById.get(p.dbId) : null;
+            const isNew = p && p.source === 'new';
+            let rowClass;
+            if (op) rowClass = p.source === 'manual' ? 'csv-row-manual' : 'csv-row-ok';
+            else if (isNew) rowClass = 'csv-row-new';
+            else rowClass = 'csv-row-noop';
+            let matchCell;
+            if (op) {
+              matchCell = `<span class="csv-match-ok" title="Pointera : ${escHtml([op.libelle_principal,op.libelle_secondaire,op.libelle_libre].filter(Boolean).join(' / '))}">
+                   ${p.source === 'manual' ? '✋' : '✓'} ${escHtml((op.libelle_principal||op.libelle_libre||'').slice(0,25))}
+                 </span>`;
+            } else if (isNew) {
+              matchCell = `<span class="csv-match-new" title="Sera créée puis pointée">✨ Nouvelle op (créée + pointée)</span>`;
+            } else {
+              matchCell = `<span class="csv-match-no">— Pas trouvé</span>`;
+            }
+            let actionCell = '';
+            if (isManual) {
+              if (op) {
+                actionCell = `<button class="csv-pick-btn" onclick="event.stopPropagation(); csvOpenPicker(${i})" title="Changer la correspondance">↻</button>
+                              <button class="csv-clear-btn" onclick="event.stopPropagation(); csvClearPair(${i})" title="Ne pas pointer">✗</button>`;
+              } else if (isNew) {
+                actionCell = `<button class="csv-clear-btn" onclick="event.stopPropagation(); csvClearPair(${i})" title="Annuler la création">✗</button>`;
+              } else {
+                actionCell = `<button class="csv-pick-btn" onclick="event.stopPropagation(); csvOpenPicker(${i})" title="Lier à une op existante">＋ Lier</button>
+                              <button class="csv-create-btn" onclick="event.stopPropagation(); csvMarkCreate(${i})" title="Créer cette opération dans le suivi">✨ Créer</button>`;
+              }
+            }
+            return `<tr class="${rowClass}">
+              <td>${r.date.toLocaleDateString('fr-FR')}</td>
+              <td title="${escHtml(r.libelle)}">${escHtml(r.libelle.slice(0, 40))}${r.libelle.length>40?'…':''}</td>
+              <td class="${r.amount >= 0 ? 'positive' : 'negative'}">${fmt(r.amount)}</td>
+              <td>${matchCell}${isManual?' '+actionCell:''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="csv-actions">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      ${isManual ? `<button class="btn-secondary" onclick="csvResetToAuto()" title="Repartir des correspondances auto-détectées">↺ Reset auto</button>` : ''}
+      <button class="btn-primary" onclick="applyCSVImport()" ${matched + toCreate === 0 ? 'disabled' : ''}>
+        ${mode === 'auto' ? '🤖' : '✓'} ${toCreate > 0 ? `Créer ${toCreate} + ` : ''}Pointer ${matched} op${matched+toCreate > 1 ? 's' : ''}
+      </button>
+    </div>`;
+}
+
+function _csvDebugPanel(file, text, parsed) {
+  // Panneau d'aide quand le parser ne trouve rien : affiche le contenu brut +
+  // les premières lignes parsées + un sélecteur de séparateur manuel.
+  const lines = text.replace(/\r\n?/g, '\n').split('\n').slice(0, 15);
+  const stepEl = document.getElementById('csv-step-2');
+  document.getElementById('csv-step-1').style.display = 'none';
+  stepEl.style.display = '';
+  const dump = lines.map((l, i) => `<div class="dbg-line"><span class="dbg-ln">${i+1}</span>${escHtml(l) || '<em>(vide)</em>'}</div>`).join('');
+  stepEl.innerHTML = `
+    <div class="csv-debug">
+      <div class="csv-debug-title">⚠️ Aucune opération détectée — voici le brut du fichier :</div>
+      <div class="csv-debug-meta">
+        <strong>Fichier :</strong> ${escHtml(file.name)} (${file.size} octets) ·
+        <strong>En-têtes détectés :</strong> ${parsed.headers.length ? parsed.headers.map(h=>'<code>'+escHtml(h)+'</code>').join(' ') : '<em>aucun</em>'}
+      </div>
+      <div class="csv-debug-dump">${dump}</div>
+      <div class="csv-debug-tip">
+        💡 Copie-colle ces lignes dans la discussion pour que je puisse t'aider à adapter le parser.
+        <br>Vérifie aussi :
+        <ul>
+          <li>Le fichier est-il encodé en UTF-8 ? (essaie de l'ouvrir dans TextEdit pour confirmer)</li>
+          <li>Le séparateur est-il bien <code>;</code> ou <code>,</code> ?</li>
+          <li>Le format de date est-il <code>JJ/MM/AAAA</code> ?</li>
+        </ul>
+      </div>
+      <div class="csv-actions">
+        <button class="btn-cancel" onclick="closeModal()">Fermer</button>
+        <button class="btn-secondary" onclick="document.getElementById('csv-file').click()">📄 Choisir un autre fichier</button>
+      </div>
+    </div>`;
+}
+
+function csvClearPair(csvIdx) {
+  window._csvImport.pairings[csvIdx] = null;
+  renderCSVPreview();
+}
+
+// Marque une ligne CSV non liée pour CRÉATION + POINTAGE lors de l'apply
+function csvMarkCreate(csvIdx) {
+  window._csvImport.pairings[csvIdx] = { source: 'new' };
+  renderCSVPreview();
+}
+
+// Marque TOUTES les lignes CSV sans correspondance pour création
+function csvMarkAllNew() {
+  const { pairings } = window._csvImport;
+  let count = 0;
+  for (let i = 0; i < pairings.length; i++) {
+    if (!pairings[i]) { pairings[i] = { source: 'new' }; count++; }
+  }
+  if (count === 0) { showToast('Aucune ligne sans correspondance', 'warn'); return; }
+  renderCSVPreview();
+  showToast(`✨ ${count} ligne(s) à créer marquée(s)`, 'success');
+}
+
+function csvResetToAuto() {
+  const { parsed, monthOps } = window._csvImport;
+  const autoMatches = autoMatchCSV(parsed.rows, monthOps);
+  window._csvImport.pairings = parsed.rows.map((_, i) => {
+    const m = autoMatches.find(x => x.csvIdx === i);
+    return m ? { dbId: m.dbId, source: 'auto' } : null;
+  });
+  renderCSVPreview();
+}
+
+function csvOpenPicker(csvIdx) {
+  const { parsed, pairings, monthOps } = window._csvImport;
+  const csvRow = parsed.rows[csvIdx];
+  const dbIdsTaken = new Set(pairings.filter((p,j) => p && p.dbId && j !== csvIdx).map(p => p.dbId));
+  // Toutes les ops du mois NON pointées (ou la sélection actuelle) et NON prises par d'autres
+  const candidates = monthOps.filter(o => (!dbIdsTaken.has(o.id) && o.pointe !== '✓')
+                                          || (pairings[csvIdx] && pairings[csvIdx].dbId === o.id));
+  // Trie par proximité date + amount
+  candidates.sort((a, b) => {
+    const sA = _matchScore(csvRow, a);
+    const sB = _matchScore(csvRow, b);
+    if (sB !== sA) return sB - sA;
+    const dA = new Date(a.annee, a.mois, a.jour) - csvRow.date;
+    const dB = new Date(b.annee, b.mois, b.jour) - csvRow.date;
+    return Math.abs(dA) - Math.abs(dB);
+  });
+  // Modal secondaire
+  const overlay = document.createElement('div');
+  overlay.className = 'csv-picker-overlay';
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="csv-picker">
+      <div class="csv-picker-head">
+        <div>
+          <div class="csv-picker-title">Choisir une opération</div>
+          <div class="csv-picker-sub">${csvRow.date.toLocaleDateString('fr-FR')} · ${escHtml(csvRow.libelle.slice(0,50))} · <strong class="${csvRow.amount>=0?'positive':'negative'}">${fmt(csvRow.amount)}</strong></div>
+        </div>
+        <button class="modal-close" onclick="this.closest('.csv-picker-overlay').remove()">×</button>
+      </div>
+      <div class="csv-picker-list">
+        ${candidates.length === 0 ? '<div class="csv-picker-empty">Aucune opération disponible dans ce mois.</div>' : ''}
+        ${candidates.map(op => {
+          const sc = _matchScore(csvRow, op);
+          const opAmount = parseFloat(op.credit||0) - parseFloat(op.debit||0);
+          const opLib = [op.libelle_principal, op.libelle_secondaire, op.libelle_libre].filter(Boolean).join(' · ');
+          return `<button class="csv-picker-item ${sc>0?'has-score':''}" onclick="csvPickConfirm(${csvIdx}, '${op.id}')">
+            <div class="cpi-date">${String(op.jour).padStart(2,'0')}/${String(op.mois+1).padStart(2,'0')}</div>
+            <div class="cpi-lib"><div class="cpi-lib-main">${escHtml(opLib||'(sans libellé)')}</div>${op.type_operation?`<div class="cpi-lib-sub">${escHtml(op.type_operation)}</div>`:''}</div>
+            <div class="cpi-amount ${opAmount>=0?'positive':'negative'}">${fmt(opAmount)}</div>
+            ${sc > 0 ? `<div class="cpi-score" title="Score de correspondance">${sc.toFixed(1)}</div>` : ''}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function csvPickConfirm(csvIdx, dbId) {
+  window._csvImport.pairings[csvIdx] = { dbId, source: 'manual' };
+  // Ferme le picker
+  document.querySelectorAll('.csv-picker-overlay').forEach(el => el.remove());
+  renderCSVPreview();
+}
+
+async function applyCSVImport() {
+  const { parsed, pairings } = window._csvImport;
+  const toPoint  = pairings.filter(p => p && p.dbId);
+  const toCreate = pairings.map((p, i) => p && p.source === 'new' ? i : -1).filter(i => i >= 0);
+  // Récupère la saisie solde
+  const soldeInput = document.getElementById('csv-solde-input');
+  const soldeStr = soldeInput ? soldeInput.value.trim().replace(',', '.') : '';
+  const soldeVal = soldeStr === '' ? null : parseFloat(soldeStr);
+  const hasSolde = soldeVal !== null && !isNaN(soldeVal);
+
+  if (!toPoint.length && !toCreate.length && !hasSolde) {
+    showToast('Rien à enregistrer', 'warn');
+    return;
+  }
+  setSyncing(true);
+  // 1. Créer les nouvelles ops (compte actif, pointées d'office puisque sur relevé bancaire)
+  let createdCount = 0;
+  if (toCreate.length) {
+    const compte = getCompteActif();
+    const rows = toCreate.map(i => {
+      const r = parsed.rows[i];
+      const d = r.date;
+      return {
+        annee: d.getFullYear(),
+        mois: d.getMonth() + 1,  // DB stocke mois 1-indexé
+        jour: d.getDate(),
+        libelle_principal: 'Import CSV',
+        libelle_libre: (r.libelle || '').slice(0, 200),
+        debit:  r.amount < 0 ? Math.abs(r.amount) : null,
+        credit: r.amount > 0 ? r.amount : null,
+        compte,
+        pointe: '✓',  // déjà sur le relevé bancaire = déjà passé
+        is_mensualisation: false,
+      };
+    });
+    const { error } = await sb.from('suivi_mensuel').insert(rows);
+    if (error) {
+      setSyncing(false);
+      showToast('Erreur création : ' + error.message, 'error');
+      return;
+    }
+    createdCount = rows.length;
+  }
+  // 2. Pointer les ops liées (existantes)
+  if (toPoint.length) {
+    await Promise.all(toPoint.map(p =>
+      sb.from('suivi_mensuel').update({ pointe: '✓' }).eq('id', p.dbId)
+    ));
+  }
+  // 3. Solde
+  if (hasSolde) {
+    await setSoldeBancaireDirect(soldeVal);
+  }
+  setSyncing(false);
+  const nbManual = toPoint.filter(p => p.source === 'manual').length;
+  const parts = [];
+  if (createdCount) parts.push(`✨ ${createdCount} op. créée(s) + pointée(s)`);
+  if (toPoint.length) parts.push(`✓ ${toPoint.length} op. pointée(s)${nbManual ? ` (${nbManual} manuel)` : ''}`);
+  if (hasSolde) parts.push(`solde ${fmt(soldeVal)} enregistré`);
+  showToast(parts.join(' · '), 'success');
+  closeModal();
+  await loadData();
+}
+
+// 🤖 Accepte toutes les correspondances auto-détectées et applique direct (sans
+// changer le mode actuel — reste en manuel pour les suivants si l'utilisateur
+// veut continuer à pointer ce qui restait).
+async function csvDoAutoMatch() {
+  const { parsed, monthOps } = window._csvImport;
+  // Recalcule les auto-matches (au cas où l'utilisateur en a modifié certains)
+  const auto = autoMatchCSV(parsed.rows, monthOps);
+  if (!auto.length) {
+    showToast('Aucune correspondance automatique trouvée', 'warn');
+    return;
+  }
+  setSyncing(true);
+  await Promise.all(auto.map(m =>
+    sb.from('suivi_mensuel').update({ pointe: '✓' }).eq('id', m.dbId)
+  ));
+  setSyncing(false);
+  showToast(`🤖 ${auto.length} opération(s) auto-pointée(s) ✓`, 'success');
+  closeModal();
+  await loadData();
+}
+
+async function setSoldeBancaireDirect(val) {
+  // Helper pour màj le solde bancaire du mois/compte courant sans passer par la modal.
+  // Utilise exactement la même clé que saveSoldeBancaire().
+  const c = getCompteActif();
+  const key = c === 'courant'
+    ? `solde_banque_${state.annee}_${String(state.mois + 1).padStart(2,'0')}`
+    : `banque_${c}_${state.annee}_${String(state.mois + 1).padStart(2,'0')}`;
+  await setParam(key, String(val));
+}
+
 async function inscrireMensualisations() {
   const mk    = MOIS_KEYS[state.mois];
   const mois  = state.mois + 1;
@@ -1451,7 +2439,7 @@ function showSoldeDepart() {
   <div class="modal-form" id="solde-form">
     <div class="form-group">
       <label>Solde de report (€)</label>
-      <input type="number" step="0.01" id="solde-input" value="${current}" placeholder="0,00">
+      <input type="text" inputmode="decimal" id="solde-input" value="${current}" placeholder="0,00">
     </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Annuler</button>
@@ -1461,7 +2449,7 @@ function showSoldeDepart() {
 }
 
 async function saveSoldeDepart() {
-  const val = parseFloat(document.getElementById('solde-input').value);
+  const val = _parseMontantFR(document.getElementById('solde-input').value);
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
   const mois = state.mois + 1;
   const annee = state.annee;
@@ -1498,7 +2486,7 @@ function showSoldeBancaire() {
   <div class="modal-form" id="solde-banque-form">
     <div class="form-group">
       <label>Solde affiché sur votre relevé bancaire (€)</label>
-      <input type="number" step="0.01" id="solde-banque-input" value="${isNaN(current) ? '' : current}" placeholder="0,00">
+      <input type="text" inputmode="decimal" id="solde-banque-input" value="${isNaN(current) ? '' : current}" placeholder="0,00">
     </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Annuler</button>
@@ -1508,7 +2496,7 @@ function showSoldeBancaire() {
 }
 
 async function saveSoldeBancaire() {
-  const val = parseFloat(document.getElementById('solde-banque-input').value);
+  const val = _parseMontantFR(document.getElementById('solde-banque-input').value);
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
   const c = getCompteActif();
   const key = c === 'courant'
@@ -1591,11 +2579,11 @@ function suiviForm(data = {}) {
   <div class="row2">
     <div class="form-group">
       <label>Crédit (€)</label>
-      <input type="number" step="0.01" name="credit" value="${data.credit != null ? data.credit : ''}" placeholder="0,00">
+      <input type="text" inputmode="decimal" name="credit" value="${data.credit != null ? data.credit : ''}" placeholder="0,00">
     </div>
     <div class="form-group">
       <label>Débit (€)</label>
-      <input type="number" step="0.01" name="debit" value="${data.debit != null ? data.debit : ''}" placeholder="0,00">
+      <input type="text" inputmode="decimal" name="debit" value="${data.debit != null ? data.debit : ''}" placeholder="0,00">
     </div>
   </div>
   ${autresComptes.length ? `
@@ -1687,8 +2675,8 @@ async function saveSuiviEntry(id) {
   data.jour   = data.jour   ? parseInt(data.jour)    : null;
   data.mois   = data.mois   ? parseInt(data.mois)    : (state.mois + 1);
   data.annee  = data.annee  ? parseInt(data.annee)   : state.annee;
-  data.credit = data.credit ? parseFloat(data.credit) : null;
-  data.debit  = data.debit  ? parseFloat(data.debit)  : null;
+  data.credit = parseMontant(data.credit);
+  data.debit  = parseMontant(data.debit);
   if (data.credit == null && data.debit == null) {
     showToast('Indiquez un crédit ou un débit', 'error'); return;
   }
@@ -1717,7 +2705,7 @@ async function saveSuiviEntry(id) {
         r.mois  = d.mois  ? parseInt(d.mois)  : data.mois;
         r.annee = d.annee ? parseInt(d.annee) : data.annee;
         // Montant : champ vide → reprend la valeur de la 1ère échéance
-        const mnt = d.montant ? parseFloat(d.montant) : baseMontant;
+        const mnt = d.montant ? parseMontant(d.montant) : baseMontant;
         if (isCredit) { r.credit = mnt; r.debit = null; }
         else          { r.debit  = mnt; r.credit = null; }
       }
@@ -1885,30 +2873,37 @@ function renderParametres() {
         </div>
       </div>
       <div class="chip-input-row">
-        <input type="number" step="0.01" id="solde-exercice-inp" value="${soldeVal}" placeholder="0,00">
+        <input type="text" inputmode="decimal" id="solde-exercice-inp" value="${soldeVal}" placeholder="0,00">
         <button class="btn-small" onclick="saveSoldeExercice()">Enregistrer</button>
       </div>
     </div>
 
     <h3>Libellés</h3>
+    <div class="params-item-left" style="margin:-2px 0 8px">
+      <div class="sub">Touchez le 📷 d'une catégorie ou d'une sous-catégorie pour lui attribuer un logo. Il s'affichera en début de ligne dans le Suivi (la sous-catégorie est prioritaire sur la catégorie).</div>
+    </div>
     <div class="libelles-manager" id="libelles-manager">
       ${state.libelles.map(l => {
         const secs = getSecondaires(l.principal);
         return `
         <div class="libelle-block" id="lib-block-${l.id}">
           <div class="libelle-block-header">
+            ${catLogoControlHTML(l.id, -1, getCatLogo(l.principal, ''))}
             <button class="libelle-toggle" onclick="toggleLibelleBlock('${l.id}')">
               <span class="toggle-arrow">▶</span>
               <strong>${escHtml(l.principal)}</strong>
               <span class="sec-count">${secs.length} secondaire${secs.length!==1?'s':''}</span>
             </button>
+            <button class="btn-icon" onclick="renameLibellePrincipal('${l.id}')" title="Renommer">✏️</button>
             <button class="btn-icon danger" onclick="deleteLibelle('${l.id}')" title="Supprimer">×</button>
           </div>
           <div class="libelle-block-body hidden" id="lib-body-${l.id}">
             <div class="secondaires-list" id="secs-${l.id}">
               ${secs.map((s,i) => `
               <div class="sec-item">
+                ${catLogoControlHTML(l.id, i, getCatLogo(l.principal, s))}
                 <span>${escHtml(s)}</span>
+                <button class="btn-icon" onclick="renameSecondaire('${l.id}', ${i})" title="Renommer">✏️</button>
                 <button class="btn-icon danger" onclick="deleteSecondaire('${l.id}', ${i})" title="Supprimer">×</button>
               </div>`).join('') || '<div class="sec-empty">Aucun secondaire</div>'}
             </div>
@@ -2019,6 +3014,44 @@ function renderParametres() {
       </div>
     </div>
 
+    <h3>Bibliothèque de logos</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="sub">Importez vos logos une seule fois : réutilisez-les ensuite sur n'importe quelle catégorie ou sous-catégorie (bouton 📷 dans Libellés). ${getLogoLibrary().length} logo${getLogoLibrary().length!==1?'s':''} en bibliothèque.</div>
+      </div>
+      <div class="logo-lib-grid" id="logo-lib-grid">
+        ${getLogoLibrary().map(l => `
+        <div class="logo-lib-item" title="${escHtml(l.name||'')}">
+          <img src="${l.img}" alt="${escHtml(l.name||'')}">
+          <button class="logo-lib-del" onclick="deleteLogoFromLibrary('${l.id}')" title="Supprimer de la bibliothèque">×</button>
+        </div>`).join('') || '<div class="sec-empty">Bibliothèque vide</div>'}
+      </div>
+      <div style="margin-top:10px">
+        <input type="file" id="logo-lib-file" accept="image/*" class="hidden" onchange="importLogoForTarget(event)">
+        <button class="btn-small" onclick="_logoPickerTarget=null; document.getElementById('logo-lib-file').click()">📷 Importer un logo</button>
+      </div>
+    </div>
+
+    <h3>Logos personnalisés</h3>
+    <div class="card" style="margin:0">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="sub">Repli par mot-clé : si aucun logo n'est défini sur la catégorie/sous-catégorie (ci-dessus), un logo dont le mot-clé est contenu dans le libellé s'affichera.</div>
+      </div>
+      <div class="logo-list" id="logo-list">
+        ${getLogoRules().map((r, i) => `
+        <div class="logo-item">
+          <span class="logo-thumb">${r.img ? `<img src="${r.img}" alt="">` : ''}</span>
+          <span class="logo-kw">${escHtml(r.kw || '')}</span>
+          <button class="btn-icon danger" onclick="deleteLogoRule(${i})" title="Supprimer">×</button>
+        </div>`).join('') || '<div class="sec-empty">Aucun logo personnalisé</div>'}
+      </div>
+      <div class="logo-add">
+        <input type="text" id="new-logo-kw" placeholder="Mot-clé (ex : claude ai)" autocapitalize="none">
+        <input type="file" id="new-logo-file" accept="image/*" class="hidden" onchange="chargerLogoRule(event)">
+        <button class="btn-small" onclick="document.getElementById('new-logo-file').click()">📷 Choisir un logo</button>
+      </div>
+    </div>
+
     <h3>Sécurité</h3>
     <div class="params-item">
       <div class="params-item-left">
@@ -2061,6 +3094,10 @@ function renderParametres() {
     <div class="params-item">
       <div class="params-item-left"><div class="name">Télécharger (JSON)</div><div class="sub">Sauvegarde complète sur l'appareil</div></div>
       <button class="btn-small" onclick="exportData()">Exporter</button>
+    </div>
+    <div class="params-item">
+      <div class="params-item-left"><div class="name">Télécharger (Excel)</div><div class="sub">Suivi, mensualisation & stats · fichier .xlsx</div></div>
+      <button class="btn-small" onclick="exportXLSX()">Exporter</button>
     </div>
     <div class="params-item">
       <div class="params-item-left"><div class="name">Restaurer une sauvegarde</div><div class="sub">Importer depuis un fichier JSON</div></div>
@@ -2117,7 +3154,7 @@ function toggleLibelleBlock(id) {
 }
 
 async function saveSoldeExercice() {
-  const val = parseFloat(document.getElementById('solde-exercice-inp').value);
+  const val = _parseMontantFR(document.getElementById('solde-exercice-inp').value);
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
   const { error } = await sb.from('soldes_depart').upsert(
     { annee: state.annee, mois: 1, solde: val },
@@ -2153,6 +3190,104 @@ async function deleteSecondaire(libId, idx) {
   const { error } = await sb.from('libelles').update({ secondaires: secs }).eq('id', libId);
   if (error) { showToast('Erreur', 'error'); return; }
   showToast('Secondaire supprimé');
+  await loadData();
+  navigate('parametres');
+}
+
+// Migre les clés de cat_logos lors d'un renommage de catégorie/sous-catégorie.
+// secIdx null → renomme le principal (toutes les clés de la catégorie) ; sinon une sous-catégorie précise.
+function _renameCatLogoKeys(map, oldP, newP, oldS, newS) {
+  const out = {};
+  for (const [k, v] of Object.entries(map)) {
+    const parts = k.split('␟');
+    let p = parts[0];
+    const s = parts.length > 1 ? parts[1] : null;
+    if (oldS == null) {
+      if (p === oldP) p = newP;                       // rename catégorie
+      out[s != null ? `${p}␟${s}` : p] = v;
+    } else {
+      const ns = (p === oldP && s === oldS) ? newS : s; // rename sous-catégorie
+      out[ns != null ? `${p}␟${ns}` : p] = v;
+    }
+  }
+  return out;
+}
+
+// Renomme une catégorie (libellé principal) et répercute partout (opérations + logos).
+async function renameLibellePrincipal(libId) {
+  const lib = state.libelles.find(l => l.id === libId);
+  if (!lib) return;
+  const oldName = lib.principal || '';
+  const saisie = prompt('Renommer la catégorie :', oldName);
+  if (saisie == null) return;
+  const nom = saisie.trim();
+  if (!nom || nom === oldName) return;
+  if (state.libelles.some(l => l.id !== libId && (l.principal || '').toLowerCase() === nom.toLowerCase())) {
+    showToast('Cette catégorie existe déjà', 'error'); return;
+  }
+  setSyncing(true);
+  try {
+    const { error } = await sb.from('libelles').update({ principal: nom }).eq('id', libId);
+    if (error) throw error;
+    await Promise.all([
+      sb.from('suivi_mensuel').update({ libelle_principal: nom }).eq('libelle_principal', oldName),
+      sb.from('mensualisations').update({ libelle_principal: nom }).eq('libelle_principal', oldName),
+      sb.from('transactions').update({ libelle_principal: nom }).eq('libelle_principal', oldName),
+    ]);
+    const cats = getCatLogos();
+    const migr = _renameCatLogoKeys(cats, oldName, nom, null, null);
+    if (JSON.stringify(migr) !== JSON.stringify(cats)) {
+      await sb.from('parametres').upsert({ cle: 'cat_logos', valeur: JSON.stringify(migr) }, { onConflict: 'cle' });
+    }
+  } catch (e) {
+    setSyncing(false);
+    showToast('Erreur lors du renommage', 'error');
+    return;
+  }
+  setSyncing(false);
+  showToast('Catégorie renommée ✓', 'success');
+  await loadData();
+  navigate('parametres');
+}
+
+// Renomme une sous-catégorie (libellé secondaire) et répercute partout (opérations + logos).
+async function renameSecondaire(libId, idx) {
+  const lib = state.libelles.find(l => l.id === libId);
+  if (!lib) return;
+  const principal = lib.principal;
+  const secs = getSecondaires(principal);
+  const oldSec = secs[idx];
+  if (oldSec == null) return;
+  const saisie = prompt('Renommer la sous-catégorie :', oldSec);
+  if (saisie == null) return;
+  const nom = saisie.trim();
+  if (!nom || nom === oldSec) return;
+  if (secs.some((x, i) => i !== idx && (x || '').toLowerCase() === nom.toLowerCase())) {
+    showToast('Cette sous-catégorie existe déjà', 'error'); return;
+  }
+  const nextSecs = secs.slice();
+  nextSecs[idx] = nom;
+  setSyncing(true);
+  try {
+    const { error } = await sb.from('libelles').update({ secondaires: nextSecs }).eq('id', libId);
+    if (error) throw error;
+    await Promise.all([
+      sb.from('suivi_mensuel').update({ libelle_secondaire: nom }).eq('libelle_principal', principal).eq('libelle_secondaire', oldSec),
+      sb.from('mensualisations').update({ libelle_secondaire: nom }).eq('libelle_principal', principal).eq('libelle_secondaire', oldSec),
+      sb.from('transactions').update({ libelle_secondaire: nom }).eq('libelle_principal', principal).eq('libelle_secondaire', oldSec),
+    ]);
+    const cats = getCatLogos();
+    const migr = _renameCatLogoKeys(cats, principal, principal, oldSec, nom);
+    if (JSON.stringify(migr) !== JSON.stringify(cats)) {
+      await sb.from('parametres').upsert({ cle: 'cat_logos', valeur: JSON.stringify(migr) }, { onConflict: 'cle' });
+    }
+  } catch (e) {
+    setSyncing(false);
+    showToast('Erreur lors du renommage', 'error');
+    return;
+  }
+  setSyncing(false);
+  showToast('Sous-catégorie renommée ✓', 'success');
   await loadData();
   navigate('parametres');
 }
@@ -2260,6 +3395,170 @@ async function deletePictoRule(idx) {
   showToast('Supprimé');
   navigate('parametres');
 }
+
+// ── Logos personnalisés (vraies images, par mot-clé) ─────
+function chargerLogoRule(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const kwInput = document.getElementById('new-logo-kw');
+  const kw = (kwInput?.value || '').trim();
+  if (!kw) { showToast('Saisissez d\'abord un mot-clé', 'error'); ev.target.value = ''; return; }
+  if (!file.type.startsWith('image/')) { showToast('Choisissez une image', 'error'); ev.target.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = async () => {
+      // Réduit le logo (carré max 80px) pour limiter la taille stockée/synchronisée
+      const max = 80;
+      let { width: w, height: h } = img;
+      const ratio = Math.min(max / w, max / h, 1);
+      w = Math.round(w * ratio); h = Math.round(h * ratio);
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = cv.toDataURL('image/png');
+      const rules = getLogoRules();
+      const i = rules.findIndex(r => (r.kw || '').toLowerCase() === kw.toLowerCase());
+      if (i >= 0) rules[i].img = dataUrl; else rules.push({ kw, img: dataUrl });
+      setSyncing(true);
+      await setParam('logo_rules', JSON.stringify(rules));
+      setSyncing(false);
+      showToast(i >= 0 ? 'Logo mis à jour ✓' : 'Logo ajouté ✓', 'success');
+      navigate('parametres');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+async function deleteLogoRule(idx) {
+  const rules = getLogoRules();
+  rules.splice(idx, 1);
+  await setParam('logo_rules', JSON.stringify(rules));
+  showToast('Logo supprimé', 'success');
+  navigate('parametres');
+}
+
+// ── Logos PAR catégorie / sous-catégorie ─────────────────
+// Bouton d'attribution : ouvre le sélecteur (bibliothèque + import). Miniature si défini, + retrait.
+// secIdx = -1 → catégorie principale ; sinon index du secondaire.
+function catLogoControlHTML(libId, secIdx, img) {
+  return `<span class="cat-logo-slot">
+    <button type="button" class="cat-logo-btn" title="${img ? 'Changer le logo' : 'Choisir un logo'}" onclick="showLogoPicker('${libId}',${secIdx})">
+      ${img ? `<img src="${img}" alt="">` : '<span class="cat-logo-ph">📷</span>'}
+    </button>
+    ${img ? `<button type="button" class="cat-logo-del" onclick="event.stopPropagation(); deleteCatLogoByLib('${libId}',${secIdx})" title="Retirer le logo">×</button>` : ''}
+  </span>`;
+}
+
+// ── Sélecteur de logo (bibliothèque réutilisable) ────────
+let _logoPickerTarget = null; // { libId, secIdx } de la cible à habiller
+function showLogoPicker(libId, secIdx) {
+  _logoPickerTarget = { libId, secIdx };
+  const lib = state.libelles.find(x => x.id === libId);
+  const principal = lib ? lib.principal : '';
+  const secondaire = (lib && secIdx != null && secIdx >= 0) ? (getSecondaires(principal)[secIdx] || '') : '';
+  const cible = secondaire ? `${principal} › ${secondaire}` : principal;
+  const biblio = getLogoLibrary();
+  const grid = biblio.length
+    ? biblio.map(l => `<button type="button" class="logo-pick" onclick="assignLogoFromLibrary('${l.id}')" title="${escHtml(l.name || '')}"><img src="${l.img}" alt=""></button>`).join('')
+    : '<div class="sec-empty">Bibliothèque vide — importez votre premier logo ci-dessous.</div>';
+  openModal(`
+  <div class="modal-handle"></div>
+  <div class="modal-title">Logo de « ${escHtml(cible)} »</div>
+  <div class="modal-form">
+    <div class="params-item-left" style="margin-bottom:8px"><div class="sub">Choisissez un logo de votre bibliothèque ou importez-en un nouveau (il sera ajouté à la bibliothèque pour être réutilisé).</div></div>
+    <div class="logo-pick-grid">${grid}</div>
+    <input type="file" id="logo-import-file" accept="image/*" class="hidden" onchange="importLogoForTarget(event)">
+    <div class="modal-actions" style="flex-wrap:wrap;gap:8px">
+      <button class="btn-cancel" onclick="closeModal()">Fermer</button>
+      <button class="btn-save" onclick="document.getElementById('logo-import-file').click()">📷 Importer un nouveau logo</button>
+    </div>
+  </div>`);
+}
+async function assignLogoFromLibrary(logoId) {
+  const item = getLogoLibrary().find(x => x.id === logoId);
+  if (!item || !_logoPickerTarget) return;
+  await _assignCatLogo(_logoPickerTarget.libId, _logoPickerTarget.secIdx, item.img);
+}
+// Import d'un nouveau logo → ajouté à la bibliothèque (+ attribué si une cible est active)
+async function importLogoForTarget(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Choisissez une image', 'error'); ev.target.value = ''; return; }
+  try {
+    const dataUrl = await _imgFileToDataUrl(file);
+    const biblio = getLogoLibrary();
+    const id = 'lg' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const name = (file.name || 'logo').replace(/\.[^.]+$/, '').slice(0, 40);
+    biblio.push({ id, name, img: dataUrl });
+    setSyncing(true);
+    await setParam('logo_library', JSON.stringify(biblio));
+    setSyncing(false);
+    if (_logoPickerTarget) {
+      await _assignCatLogo(_logoPickerTarget.libId, _logoPickerTarget.secIdx, dataUrl);
+    } else {
+      showToast('Logo ajouté à la bibliothèque ✓', 'success');
+      navigate('parametres');
+    }
+  } catch (e) { setSyncing(false); showToast('Erreur : ' + e.message, 'error'); }
+}
+// Attribue une image (data URL) à une catégorie/sous-catégorie
+async function _assignCatLogo(libId, secIdx, img) {
+  const lib = state.libelles.find(x => x.id === libId);
+  if (!lib) { showToast('Catégorie introuvable', 'error'); return; }
+  const principal = lib.principal;
+  const secondaire = (secIdx != null && secIdx >= 0) ? (getSecondaires(principal)[secIdx] || '') : '';
+  const cats = getCatLogos();
+  cats[catLogoKey(principal, secondaire)] = img;
+  setSyncing(true);
+  await setParam('cat_logos', JSON.stringify(cats));
+  setSyncing(false);
+  _logoPickerTarget = null;
+  showToast('Logo attribué ✓', 'success');
+  closeModal();
+  navigate('parametres');
+}
+async function deleteLogoFromLibrary(id) {
+  if (!confirm('Supprimer ce logo de la bibliothèque ?\n(Les catégories qui l\'utilisent déjà conservent leur image.)')) return;
+  const biblio = getLogoLibrary().filter(x => x.id !== id);
+  await setParam('logo_library', JSON.stringify(biblio));
+  showToast('Logo supprimé de la bibliothèque', 'success');
+  navigate('parametres');
+}
+// Réduit un fichier image en data URL PNG (carré max 80px)
+function _imgFileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Lecture impossible'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image invalide'));
+      img.onload = () => {
+        const max = 128;
+        let { width: w, height: h } = img;
+        const ratio = Math.min(max / w, max / h, 1);
+        w = Math.round(w * ratio); h = Math.round(h * ratio);
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL('image/png'));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+async function deleteCatLogoByLib(libId, secIdx) {
+  const lib = state.libelles.find(x => x.id === libId);
+  if (!lib) return;
+  const principal = lib.principal;
+  const secondaire = (secIdx != null && secIdx >= 0) ? (getSecondaires(principal)[secIdx] || '') : '';
+  const cats = getCatLogos();
+  delete cats[catLogoKey(principal, secondaire)];
+  await setParam('cat_logos', JSON.stringify(cats));
+  showToast('Logo retiré', 'success');
+  navigate('parametres');
+}
 async function saveChequier(nom) {
   const inp = document.getElementById(`cheq-${nom}`);
   const val = (inp?.value || '').trim();
@@ -2346,14 +3645,53 @@ async function annulerChequeInline(btn) {
 // ═══════════════════════════════════════════════════════
 // MODALS — MENSUALISATION
 // ═══════════════════════════════════════════════════════
+// Vrai si les 12 mois sont renseignés et identiques (→ case "tous les mois" cochée)
+function monthsAllEqual(data) {
+  const vals = MOIS_KEYS.map(k => data[k]);
+  if (vals.some(v => v == null || v === '')) return false;
+  const first = parseFloat(vals[0]);
+  return vals.every(v => parseFloat(v) === first);
+}
+
 function monthsFields(data = {}) {
-  return `<div class="months-grid">
+  const allEq = monthsAllEqual(data);
+  return `
+  <label class="mensu-repeat-toggle">
+    <input type="checkbox" name="repeat_all"${allEq ? ' checked' : ''} onchange="toggleMensuRepeat(this)">
+    <span>Même montant tous les mois <small>(reporte janvier sur les 12 mois)</small></span>
+  </label>
+  <div class="months-grid${allEq ? ' months-collapsed' : ''}">
     ${MOIS_KEYS.map((mk, i) => `
-    <div class="month-input-group">
-      <label>${MOIS_COURT[i]}</label>
-      <input type="number" step="0.01" name="${mk}" value="${data[mk] != null ? data[mk] : ''}" placeholder="—">
+    <div class="month-input-group${i === 0 ? ' month-jan' : ''}">
+      <label>${i === 0 && allEq ? 'Tous les mois' : MOIS_COURT[i]}</label>
+      <input type="text" inputmode="decimal" name="${mk}" value="${data[mk] != null ? data[mk] : ''}" placeholder="—"${i === 0 ? ' oninput="syncMensuRepeat(this)"' : ''}>
     </div>`).join('')}
   </div>`;
+}
+
+// Coche/décoche "même montant tous les mois"
+function toggleMensuRepeat(cb) {
+  const form = cb.closest('.modal-form');
+  if (!form) return;
+  const grid = form.querySelector('.months-grid');
+  const janInput = form.querySelector('.month-jan input');
+  const janLabel = form.querySelector('.month-jan > label');
+  if (cb.checked) {
+    grid.classList.add('months-collapsed');
+    if (janLabel) janLabel.textContent = 'Tous les mois';
+    if (janInput) { syncMensuRepeat(janInput); janInput.focus(); }
+  } else {
+    grid.classList.remove('months-collapsed');
+    if (janLabel) janLabel.textContent = 'Jan';
+  }
+}
+
+// Recopie la valeur de janvier sur les 11 autres mois (si la case est cochée)
+function syncMensuRepeat(janInput) {
+  const form = janInput.closest('.modal-form');
+  const cb = form && form.querySelector('[name="repeat_all"]');
+  if (!cb || !cb.checked) return;
+  form.querySelectorAll('.months-grid input').forEach(inp => { if (inp !== janInput) inp.value = janInput.value; });
 }
 
 // ── Dropdown secondaire lié au principal ────────────────
@@ -2362,9 +3700,13 @@ let _libUid = 0;
 function getSecondaires(principal) {
   const lib = state.libelles.find(l => l.principal === principal);
   if (!lib) return [];
-  const s = lib.secondaires;
-  if (Array.isArray(s)) return s;
-  try { return JSON.parse(s); } catch { return []; }
+  let arr = lib.secondaires;
+  if (!Array.isArray(arr)) { try { arr = JSON.parse(arr); } catch { arr = []; } }
+  if (!Array.isArray(arr)) arr = [];
+  // Toujours trié alphabétiquement (FR, insensible à la casse/accents).
+  // Renvoie une copie : le tri vaut partout (Réglages, menus déroulants) et les
+  // index restent cohérents puisque toutes les opérations passent par ici.
+  return [...arr].sort((a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base' }));
 }
 
 // Ajoute automatiquement à la liste des libellés ceux saisis dans un formulaire
@@ -2463,7 +3805,7 @@ function echeanceMultiGroup4X(uid, isVisible, baseJour, baseMois, baseAnnee) {
       <select name="ech${n}_annee" class="ech-input ech-annee">
         ${annees.map(y => `<option value="${y}"${y===def.a?' selected':''}>${y}</option>`).join('')}
       </select>
-      <input type="number" step="0.01" name="ech${n}_montant" placeholder="Montant" class="ech-input ech-montant" title="Vide = même que la 1ère échéance">
+      <input type="text" inputmode="decimal" name="ech${n}_montant" placeholder="Montant" class="ech-input ech-montant" title="Vide = même que la 1ère échéance">
     </div>`;
   return `
   <div class="form-group echeance-multi-grp" id="echeance-multi-grp-${uid}" style="display:${isVisible?'':'none'}">
@@ -2567,14 +3909,23 @@ function showEditMensu(id) {
 
 async function saveMensu(id) {
   const form = document.getElementById('mensu-form');
+  const repeatAll = !!form.querySelector('[name="repeat_all"]')?.checked;
   const data = {};
   form.querySelectorAll('[name]').forEach(el => {
+    if (el.name === 'repeat_all') return; // case à cocher : pas une colonne en base
     const v = el.value.trim();
-    if (MOIS_KEYS.includes(el.name)) { data[el.name] = v === '' ? null : parseFloat(v); }
+    if (MOIS_KEYS.includes(el.name)) { data[el.name] = parseMontant(v); }
     else { data[el.name] = v || null; }
   });
   data.jour = parseInt(data.jour) || 1;
   if (!data.libelle_principal) { showToast('Libellé principal requis', 'error'); return; }
+
+  // "Même montant tous les mois" : on reporte la valeur de janvier sur les 12 mois
+  if (repeatAll) {
+    const jan = data['jan'];
+    if (jan == null) { showToast('Saisissez le montant de janvier', 'error'); return; }
+    MOIS_KEYS.forEach(k => { data[k] = jan; });
+  }
 
   // Mémorise l'état AVANT modification pour pouvoir détecter ce qui a changé
   const oldMensu = id ? state.mensualisations.find(m => m.id === id) : null;
@@ -2693,7 +4044,7 @@ function transactionForm(data = {}) {
     </div>
     <div class="form-group">
       <label>Montant (€)</label>
-      <input type="number" step="0.01" name="montant" value="${data.montant||''}" placeholder="0,00">
+      <input type="text" inputmode="decimal" name="montant" value="${data.montant||''}" placeholder="0,00">
     </div>
   </div>
   <div class="form-group">
@@ -2741,7 +4092,7 @@ async function saveTransaction(id) {
   const form = document.getElementById('tr-form');
   const data = {};
   form.querySelectorAll('[name]').forEach(el => { data[el.name] = el.value.trim() || null; });
-  data.montant = parseFloat(data.montant);
+  data.montant = _parseMontantFR(data.montant);
   if (!data.date_transaction) { showToast('Date requise', 'error'); return; }
   if (isNaN(data.montant) || data.montant <= 0) { showToast('Montant invalide', 'error'); return; }
 
@@ -2851,6 +4202,64 @@ function exportData() {
   a.click();
   localStorage.setItem('last_backup', new Date().toISOString());
   showToast('Export téléchargé', 'success');
+}
+
+// ── Export Excel (.xlsx) via SheetJS chargé à la demande ──
+async function exportXLSX() {
+  try {
+    showToast('Préparation du fichier Excel…', '');
+    await ensureXLSX();
+    const comptes = getComptes();
+    const nomCompte = id => (comptes.find(c => c.id === id)?.nom) || id;
+    const wb = XLSX.utils.book_new();
+
+    // 1) Suivi de l'année (tous comptes)
+    const suiviRows = state.suivi
+      .filter(e => e.annee === state.annee)
+      .sort((a, b) => (a.mois - b.mois) || ((a.jour || 0) - (b.jour || 0)))
+      .map(e => ({
+        Mois: MOIS_FR[(e.mois || 1) - 1],
+        Jour: e.jour || '',
+        'Libellé principal': e.libelle_principal || '',
+        'Libellé secondaire': e.libelle_secondaire || '',
+        'Détail': e.libelle_libre || '',
+        Type: e.type_operation || '',
+        'Chèque': e.num_cheque || '',
+        'Pointé': e.pointe === '✓' ? 'Oui' : '',
+        'Crédit': (e.credit != null && e.credit !== '') ? Number(e.credit) : '',
+        'Débit': (e.debit != null && e.debit !== '') ? Number(e.debit) : '',
+        Compte: nomCompte(suiviCompte(e)),
+      }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(suiviRows.length ? suiviRows : [{ Info: 'Aucune opération' }]), `Suivi ${state.annee}`);
+
+    // 2) Mensualisation
+    const mensuRows = state.mensualisations.map(m => {
+      const row = {
+        'Libellé principal': m.libelle_principal || '',
+        'Libellé secondaire': m.libelle_secondaire || '',
+        Type: m.type || '',
+        'Opération': m.operation || '',
+        Jour: m.jour || '',
+      };
+      MOIS_KEYS.forEach((k, i) => { row[MOIS_COURT[i]] = (m[k] != null && m[k] !== '') ? Number(m[k]) : ''; });
+      return row;
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mensuRows.length ? mensuRows : [{ Info: 'Aucune mensualisation' }]), 'Mensualisation');
+
+    // 3) Stats par catégorie (année, compte sélectionné)
+    const compte = window._statsCompte || 'courant';
+    const base = state.suivi.filter(e => !e.source_id && suiviCompte(e) === compte && e.annee === state.annee);
+    const { sortD, sortC } = getStatsData(base);
+    const statRows = [];
+    sortD.forEach(([p, d]) => statRows.push({ 'Catégorie': p, Sens: 'Dépense', Montant: +d.total.toFixed(2) }));
+    sortC.forEach(([p, d]) => statRows.push({ 'Catégorie': p, Sens: 'Entrée', Montant: +d.total.toFixed(2) }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(statRows.length ? statRows : [{ Info: 'Aucune donnée' }]), `Stats ${nomCompte(compte)}`.slice(0, 31));
+
+    XLSX.writeFile(wb, `gestion2026_${state.annee}.xlsx`);
+    showToast('Fichier Excel téléchargé ✓', 'success');
+  } catch (err) {
+    showToast('Erreur export Excel : ' + err.message, 'error');
+  }
 }
 
 // ── Sauvegarde iCloud via le partage natif iOS ──────────
@@ -3557,7 +4966,19 @@ function renderStats() {
     <button class="mensu-tab${statsView==='mensuel'?' active':''}" onclick="window._statsView='mensuel'; render()">📊 Mensuel</button>
     <button class="mensu-tab${statsView==='annuel'?' active':''}" onclick="window._statsView='annuel'; render()">📆 Annuel</button>
   </div>`;
-  return secTabs + tabs + (statsView === 'annuel' ? renderStatsAnnuel() : renderStatsMensuel());
+  // Sélecteur de compte (affiché seulement s'il y a plusieurs comptes)
+  const comptes = getComptes();
+  const compteSel = window._statsCompte || 'courant';
+  if (!comptes.some(c => c.id === compteSel)) window._statsCompte = 'courant';
+  const compteSelector = comptes.length > 1 ? `
+  <div class="mensu-tabs stats-compte-tabs">
+    ${comptes.map(c => `<button class="mensu-tab${(window._statsCompte||'courant')===c.id?' active':''}" onclick="window._statsCompte='${c.id}'; render()">${escHtml(c.nom)}</button>`).join('')}
+  </div>` : '';
+  const exportBar = `
+  <div class="stats-export-bar">
+    <button class="btn-small" onclick="exportXLSX()">⬇️ Exporter en Excel</button>
+  </div>`;
+  return secTabs + tabs + compteSelector + exportBar + (statsView === 'annuel' ? renderStatsAnnuel() : renderStatsMensuel());
 }
 
 // Solde courant (fin du mois affiché) d'un compte donné
@@ -3775,15 +5196,17 @@ function statsContent(totalDebit, totalCredit, sortD, sortC, period) {
   </div>`;
 }
 
-// Stats « Compte courant » : uniquement le compte courant, hors virements auto
+// Stats détaillées : compte sélectionné (courant par défaut), hors virements auto
 function statsBase() {
-  return state.suivi.filter(e => !e.source_id && suiviCompte(e) === 'courant');
+  const compte = window._statsCompte || 'courant';
+  return state.suivi.filter(e => !e.source_id && suiviCompte(e) === compte);
 }
 
 // Timeline 12 mois : barres verticales empilées (crédit en haut, débit en bas)
 function statsTimelineHTML() {
+  const compte = window._statsCompte || 'courant';
   const data = Array.from({ length: 12 }, (_, i) => {
-    const ents = state.suivi.filter(e => e.annee === state.annee && e.mois === i + 1 && !e.source_id);
+    const ents = state.suivi.filter(e => e.annee === state.annee && e.mois === i + 1 && !e.source_id && suiviCompte(e) === compte);
     const c = ents.reduce((s,e) => s + parseFloat(e.credit||0), 0);
     const d = ents.reduce((s,e) => s + parseFloat(e.debit||0), 0);
     return { c, d };
