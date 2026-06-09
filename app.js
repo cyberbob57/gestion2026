@@ -3138,7 +3138,7 @@ function renderParametres() {
       <div class="params-item-left">
         <div class="name">🫆 Déverrouillage par empreinte</div>
         <div class="sub">${biometricEnabled()
-          ? 'Activé — empreinte demandée à l\'ouverture de l\'app'
+          ? 'Activé — empreinte à l\'ouverture et au retour d\'arrière-plan'
           : 'Touch ID / Windows Hello pour ouvrir l\'app (cet appareil)'}</div>
       </div>
       ${biometricEnabled()
@@ -4851,12 +4851,14 @@ function showLogin(opts = {}) {
     document.getElementById('app').appendChild(s);
   }
   s.classList.remove('hidden');
-  const mode = ['signup','forgot','recovery'].includes(opts.mode) ? opts.mode : 'login';
+  // Inscriptions FERMÉES (sécurité) : le mode 'signup' n'est plus honoré.
+  // Pour ajouter un compte au foyer → Supabase Dashboard › Authentication › Users › Add user.
+  const mode = ['forgot','recovery'].includes(opts.mode) ? opts.mode : 'login';
   if (mode === 'recovery') {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=106" alt="MON COMPTE">
+          <img src="icon.png?v=107" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -4884,7 +4886,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=106" alt="MON COMPTE">
+          <img src="icon.png?v=107" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -4899,15 +4901,15 @@ function showLogin(opts = {}) {
     setTimeout(() => document.getElementById('login-email')?.focus(), 50);
     return;
   }
-  const fn = mode === 'signup' ? 'doSignup' : 'doLogin';
-  const cta = mode === 'signup' ? 'Créer le compte' : 'Se connecter';
-  const sub = mode === 'signup' ? 'Créez votre compte sécurisé' : 'Connectez-vous à votre espace';
-  const swap = mode === 'signup' ? "J'ai déjà un compte" : 'Première fois ? Créer un compte';
-  const swapTo = mode === 'signup' ? 'login' : 'signup';
+  // Seul le mode 'login' atteint ce point (forgot/recovery sortent plus haut,
+  // signup est désactivé). Pas d'option d'inscription affichée.
+  const fn = 'doLogin';
+  const cta = 'Se connecter';
+  const sub = 'Connectez-vous à votre espace';
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=106" alt="MON COMPTE">
+        <img src="icon.png?v=107" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -4928,8 +4930,7 @@ function showLogin(opts = {}) {
       </div>
       <div id="login-err" class="login-err hidden"></div>
       <button class="btn-primary" onclick="${fn}()">${cta} →</button>
-      ${mode==='login' ? `<button class="login-swap" onclick="showLogin({mode:'forgot'})">Mot de passe oublié ?</button>` : ''}
-      <button class="login-swap" onclick="showLogin({mode:'${swapTo}'})">${swap}</button>
+      <button class="login-swap" onclick="showLogin({mode:'forgot'})">Mot de passe oublié ?</button>
     </div>
   `;
   setTimeout(() => document.getElementById('login-email')?.focus(), 50);
@@ -4971,13 +4972,11 @@ async function doLogin() {
   await onSignedIn();
 }
 async function doSignup() {
-  const email = (document.getElementById('login-email')?.value || '').trim();
-  const pwd = document.getElementById('login-pwd')?.value || '';
-  if (!email || pwd.length < 6) { loginErr('Email valide et mot de passe d\'au moins 6 caractères requis'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password: pwd });
-  if (error) { loginErr(error.message || 'Erreur création de compte'); return; }
-  if (!data.session) { loginErr('Compte créé. Confirmez par email ou activez « Auto Confirm » dans Supabase Auth.'); return; }
-  await onSignedIn();
+  // Inscriptions fermées (sécurité). Conservé neutralisé pour bloquer tout
+  // appel résiduel (console, ancienne page en cache). La vraie barrière est
+  // côté Supabase : Authentication › Providers › Email › « Allow new users to
+  // sign up » désactivé. Ajout de compte foyer = Dashboard › Users › Add user.
+  loginErr('Les inscriptions sont fermées. Contactez l\'administrateur du foyer.');
 }
 async function doLogout() {
   if (!confirm('Se déconnecter de l\'application ?')) return;
@@ -5110,7 +5109,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=106" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=107" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
@@ -5128,6 +5127,31 @@ async function biometricUnlockFlow() {
   const el = document.getElementById('lock-err');
   if (el) { el.textContent = 'Échec du déverrouillage — réessayez ou connectez-vous par mot de passe.'; el.classList.remove('hidden'); }
 }
+
+// Re-verrouillage automatique : dès que l'app passe en arrière-plan
+// (changement d'onglet, app switcher, écran verrouillé), on bascule sur
+// l'écran de verrouillage. Avantage : le contenu n'apparaît pas dans
+// l'aperçu de l'app switcher, et l'empreinte est redemandée au retour.
+// N'agit que si le verrou biométrique est activé ET qu'on est dans l'app.
+function _maybeAutoLock() {
+  if (!biometricEnabled()) return;
+  const app = document.getElementById('screen-app');
+  if (!app || app.classList.contains('hidden')) return;   // pas dans l'app
+  const lock = document.getElementById('screen-lock');
+  if (lock && !lock.classList.contains('hidden')) return;  // déjà verrouillé
+  showLockScreen();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    _maybeAutoLock();
+  } else {
+    // De retour au premier plan : si on est sur l'écran de verrouillage,
+    // on retente l'empreinte automatiquement (le prompt n'apparaît qu'ici,
+    // jamais pendant que l'onglet est masqué).
+    const lock = document.getElementById('screen-lock');
+    if (lock && !lock.classList.contains('hidden')) biometricUnlockFlow();
+  }
+});
 
 // Aiguillage : si déjà connecté → app, sinon écran de connexion
 async function routeAuth() {
