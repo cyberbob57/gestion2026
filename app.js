@@ -627,7 +627,11 @@ async function setupSupabase() {
 function renderSkeleton() {
   const card = '<div class="skl-card"><div class="skl-line w60"></div><div class="skl-line w90"></div><div class="skl-line w40"></div></div>';
   return `<div class="skeleton-wrap">
-    <div class="skl-hero"><div class="skl-line w50 light"></div><div class="skl-big light"></div><div class="skl-line w70 light"></div></div>
+    <div class="skl-hero">
+      <div class="skl-line w50 light"></div>
+      <div class="skl-big light"></div>
+      <div class="skl-hero-row"><div class="skl-pill light"></div><div class="skl-pill light"></div></div>
+    </div>
     ${card}${card}${card}
   </div>`;
 }
@@ -637,6 +641,38 @@ function showApp() {
   document.getElementById('screen-app').classList.remove('hidden');
   const m = document.getElementById('main-content');
   if (m && !m.innerHTML.trim()) m.innerHTML = renderSkeleton();
+}
+
+// État vide soigné : illustration + message + bouton d'action facultatif.
+function emptyState(icon, title, sub = '', cta = '') {
+  return `<div class="empty-state">
+    <div class="es-illus">${icon}</div>
+    <p class="es-title">${title}</p>
+    ${sub ? `<p class="es-sub">${sub}</p>` : ''}
+    ${cta ? `<div class="es-cta-wrap">${cta}</div>` : ''}
+  </div>`;
+}
+
+// Animation « compteur » sur les grands montants (Solde net, Patrimoine).
+// Respecte prefers-reduced-motion (affiche directement la valeur finale).
+function animateCountUp(el) {
+  const target = parseFloat(el.dataset.countup);
+  if (!isFinite(target)) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = fmt(target); return;
+  }
+  const dur = 750, t0 = performance.now();
+  function frame(t) {
+    const p = Math.min((t - t0) / dur, 1);
+    const eased = 1 - Math.pow(1 - p, 3);   // easeOutCubic
+    el.textContent = fmt(target * eased);
+    if (p < 1) requestAnimationFrame(frame);
+    else el.textContent = fmt(target);
+  }
+  requestAnimationFrame(frame);
+}
+function animateCountUps(root) {
+  (root || document).querySelectorAll('[data-countup]').forEach(animateCountUp);
 }
 function showSetup() {
   document.getElementById('screen-app').classList.add('hidden');
@@ -759,7 +795,7 @@ function renderDashboard() {
   <div class="solde-card">
     ${mascotteSVG(solde, totalC)}
     <div class="solde-label">Solde net — ${MOIS_FR[state.mois]} ${state.annee}</div>
-    <div class="solde-amount ${soldeClass}">${fmt(solde)}</div>
+    <div class="solde-amount ${soldeClass}" data-countup="${solde}">${fmt(solde)}</div>
     <div class="solde-sub">
       <div class="solde-sub-item">
         <div class="label">↓ Débits</div>
@@ -783,7 +819,7 @@ function renderDashboard() {
         <span class="patri-title">💼 Patrimoine total</span>
         <span class="patri-period">${MOIS_FR[state.mois]} ${state.annee}</span>
       </div>
-      <div class="patri-amount">${fmt(patri)}</div>
+      <div class="patri-amount" data-countup="${patri}">${fmt(patri)}</div>
       <div class="patri-split">
         <div class="patri-seg"><span>Compte courant</span><strong>${fmt(cour)}</strong></div>
         <div class="patri-seg ep"><span>Épargne (${eps.length})</span><strong>${fmt(epTot)}</strong></div>
@@ -900,6 +936,7 @@ function _applyChartDefaults() {
 }
 
 function bindDashboard() {
+  animateCountUps(document.getElementById('main-content'));
   const canvas = document.getElementById('chart-solde');
   if (!canvas) return;
   if (typeof Chart === 'undefined') {
@@ -1022,7 +1059,7 @@ function renderMensualisation() {
     <div class="total-chip solde"><div class="label">Solde</div><div class="value" style="color:${solde>=0?'var(--credit)':'var(--debit)'}">${fmt(solde)}</div></div>
   </div>
   <div class="mensu-list">
-    ${rows.length === 0 ? '<div class="empty-state"><div class="icon">📋</div><p>Aucune mensualisation ce mois</p></div>' :
+    ${rows.length === 0 ? emptyState('📋', 'Aucune mensualisation ce mois', 'Ajoutez vos prélèvements et revenus récurrents pour les retrouver chaque mois.', '<button class="es-cta" onclick="showAddMensu()">＋ Ajouter une mensualisation</button>') :
       rows.map((m, idx) => {
         const prevu = parseFloat(m[mk] || 0);
         const actuel = getSuiviActuelMensu(m);
@@ -1156,7 +1193,7 @@ function renderJournal() {
     <div class="total-chip debit"><div class="label">Débits</div><div class="value">${fmt(totalD)}</div></div>
     <div class="total-chip credit"><div class="label">Crédits</div><div class="value">${fmt(totalC)}</div></div>
   </div>
-  ${dates.length === 0 ? `<div class="empty-state"><div class="icon">📔</div><p>Aucune transaction ce mois</p></div>` :
+  ${dates.length === 0 ? emptyState('📔', 'Aucune transaction ce mois', 'Commencez par saisir une opération du mois.', '<button class="es-cta" onclick="showAddTransaction()">＋ Saisir une transaction</button>') :
     dates.map(d => `
     <div class="journal-day-group">
       <div class="journal-day-label">${fmtDate(d)}</div>
@@ -1377,7 +1414,7 @@ function renderSuivi() {
   </div>` : ''}
 
   ${entries.length === 0 && getCompteActif() === 'courant'
-    ? `<div class="empty-state"><div class="icon">📒</div><p>Aucune opération ce mois<br><small>Cliquez sur "Inscrire les mensualisations" pour commencer</small></p></div>`
+    ? emptyState('📒', 'Aucune opération ce mois', 'Inscrivez vos mensualisations en un clic, ou saisissez une opération manuelle.', '<button class="es-cta" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button><button class="es-cta secondary" onclick="showAddSuiviEntry()">＋ Saisir</button>')
     : entries.length === 0
     ? `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
     <div class="suivi-table-wrap">
@@ -1408,7 +1445,7 @@ function renderSuivi() {
     </table>
   </div>`
     : rows.length === 0
-    ? `<div class="empty-state"><div class="icon">🔍</div><p>Aucun résultat<br><small>Aucune opération ne correspond à votre recherche/filtre</small></p></div>`
+    ? emptyState('🔍', 'Aucun résultat', 'Aucune opération ne correspond à votre recherche ou à ce filtre.', `<button class="es-cta secondary" onclick="window._suiviFilter='tous'; window._suiviSearch=''; render()">✕ Réinitialiser les filtres</button>`)
     : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
     <div class="suivi-table-wrap">
     <table class="suivi-table">
@@ -4974,7 +5011,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=108" alt="MON COMPTE">
+          <img src="icon.png?v=109" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -5002,7 +5039,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=108" alt="MON COMPTE">
+          <img src="icon.png?v=109" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -5025,7 +5062,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=108" alt="MON COMPTE">
+        <img src="icon.png?v=109" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5225,7 +5262,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=108" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=109" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
