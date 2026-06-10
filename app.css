@@ -988,6 +988,9 @@ a { color: var(--primary-mid); }
   }
   #app-header { padding-left: 248px; }
   #main-content { padding-left: 230px; padding-bottom: 16px; }
+  /* Largeur de lecture maîtrisée sur grand écran : on cape et on centre le
+     contenu au lieu de l'étirer sur toute la largeur du Mac. */
+  #main-content > * { max-width: 880px; margin-left: auto; margin-right: auto; }
   #bottom-nav { padding: calc(var(--header-h) + 14px) 12px 18px; }
   .nav-logo {
     display: flex; justify-content: center;
@@ -1670,6 +1673,16 @@ a { color: var(--primary-mid); }
 #toast.success { background: linear-gradient(135deg, #065F46, #059669); color: white; }
 #toast.error   { background: linear-gradient(135deg, #7F1D1D, #DC2626); color: white; }
 #toast:not(.success):not(.error) { background: linear-gradient(135deg, #1E293B, #334155); color: white; }
+/* Toast « Annuler » (suppression réversible) : doit être cliquable */
+#toast.with-undo { pointer-events: auto; padding-right: 8px; }
+.toast-undo {
+  margin-left: 4px; padding: 6px 14px; border-radius: 16px;
+  background: rgba(255,255,255,.16); color: #fff; font-weight: 700; font-size: 13px;
+  border: 1px solid rgba(255,255,255,.28); cursor: pointer; flex-shrink: 0;
+  transition: background .15s ease, transform .1s ease;
+}
+.toast-undo:hover { background: rgba(255,255,255,.28); }
+.toast-undo:active { transform: scale(.94); }
 .toast-icon {
   display: flex; align-items: center; justify-content: center;
   width: 20px; height: 20px;

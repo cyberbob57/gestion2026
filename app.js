@@ -2846,13 +2846,21 @@ async function proposerAlignerMensuMaster(oldEntry, newJour, currentId) {
 }
 
 async function deleteSuiviEntry(id) {
-  if (!confirm('Supprimer cette opération ?')) return;
   closeModal();
-  await sb.from('suivi_mensuel').delete().eq('id', id);
-  // Retire aussi le virement épargne automatique éventuellement lié
-  await sb.from('suivi_mensuel').delete().eq('source_id', id);
-  showToast('Supprimée', 'success');
-  await loadData();
+  // L'opération + un éventuel virement épargne automatique lié (source_id)
+  const removed = state.suivi.filter(x => x.id === id || x.source_id === id);
+  if (removed.length === 0) return;
+  deleteWithUndo({
+    label: 'Opération supprimée',
+    removeLocal: () => {
+      state.suivi = state.suivi.filter(x => x.id !== id && x.source_id !== id);
+      return () => { state.suivi.push(...removed); };
+    },
+    commitDb: async () => {
+      await sb.from('suivi_mensuel').delete().eq('id', id);
+      await sb.from('suivi_mensuel').delete().eq('source_id', id);
+    },
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4099,13 +4107,17 @@ async function synchroniserDatesMensu() {
 }
 
 async function deleteMensu(id) {
-  if (!confirm('Supprimer cette mensualisation ?')) return;
   closeModal();
-  setSyncing(true);
-  await sb.from('mensualisations').delete().eq('id', id);
-  setSyncing(false);
-  showToast('Supprimée', 'success');
-  await loadData();
+  const removed = state.mensualisations.find(x => x.id === id);
+  if (!removed) return;
+  deleteWithUndo({
+    label: 'Mensualisation supprimée',
+    removeLocal: () => {
+      state.mensualisations = state.mensualisations.filter(x => x.id !== id);
+      return () => { state.mensualisations.push(removed); };
+    },
+    commitDb: async () => { await sb.from('mensualisations').delete().eq('id', id); },
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4196,11 +4208,17 @@ async function saveTransaction(id) {
 }
 
 async function deleteTransaction(id) {
-  if (!confirm('Supprimer cette transaction ?')) return;
   closeModal();
-  await sb.from('transactions').delete().eq('id', id);
-  showToast('Supprimée', 'success');
-  await loadData();
+  const removed = state.transactions.find(x => x.id === id);
+  if (!removed) return;
+  deleteWithUndo({
+    label: 'Transaction supprimée',
+    removeLocal: () => {
+      state.transactions = state.transactions.filter(x => x.id !== id);
+      return () => { state.transactions.push(removed); };
+    },
+    commitDb: async () => { await sb.from('transactions').delete().eq('id', id); },
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4382,15 +4400,56 @@ function joursDepuisBackup() {
 // 2) Si non disponible (iOS / pas configuré) et > 7 jours depuis le dernier
 //    backup, on affiche une bannière discrète et fermable, plus aucune modale.
 async function maybeAutoBackup() {
-  // Tentative silencieuse — rien à afficher si ça réussit
+  // 1) Sauvegarde fichier iCloud silencieuse (Chrome desktop, si configurée)
   const silent = await trySilentAutoBackup();
   if (silent) return;
+  // 2) Snapshot cloud automatique (universel — fonctionne aussi sur iPhone)
+  //    Dès qu'il date de plus d'un jour, on enregistre une copie dans Supabase.
+  if (joursDepuisBackup() >= 1) {
+    const ok = await snapshotToCloud();
+    if (ok) return;   // sauvegardé → aucun bandeau
+  }
+  // 3) Repli : rien n'a pu sauvegarder → bandeau discret après 7 jours
   const j = joursDepuisBackup();
   if (j < BACKUP_FREQ_DAYS) return;
   const today = new Date().toISOString().slice(0, 10);
   if (localStorage.getItem('backup_snooze') === today) return;
   showBackupBanner(j);
 }
+
+// Snapshot automatique des données dans la table Supabase `backups` (jsonb).
+// Universel (aucun sélecteur de fichier, marche sur iOS), conserve les 10
+// derniers. Renvoie true si l'enregistrement a réussi.
+async function snapshotToCloud() {
+  if (!sb || !state.connected) return false;
+  try {
+    const payload = JSON.parse(buildBackupPayload());
+    const { error } = await sb.from('backups').insert({
+      device: (navigator.platform || '') + ' · ' + (navigator.userAgent.includes('Mobile') ? 'mobile' : 'desktop'),
+      payload,
+    });
+    if (error) return false;
+    // Purge : ne garder que les 10 snapshots les plus récents
+    const { data } = await sb.from('backups').select('id').order('created_at', { ascending: false });
+    if (data && data.length > 10) {
+      await sb.from('backups').delete().in('id', data.slice(10).map(r => r.id));
+    }
+    localStorage.setItem('last_backup', new Date().toISOString());
+    return true;
+  } catch (e) { return false; }
+}
+
+// Quand l'app passe en arrière-plan : on valide les suppressions en attente
+// (pour ne rien perdre) et on tente un snapshot cloud, au plus 1×/12 h.
+let _lastLeaveSnapshot = 0;
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  flushPendingUndo();
+  if (Date.now() - _lastLeaveSnapshot < 12 * 3600 * 1000) return;
+  if (joursDepuisBackup() < 1) return;
+  _lastLeaveSnapshot = Date.now();
+  snapshotToCloud();
+});
 
 function showBackupBanner(j) {
   if (document.getElementById('backup-banner')) return;
@@ -4793,6 +4852,63 @@ function showToast(msg, type = '') {
   _toastTimer = setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
+// ── Suppression réversible (motif « Annuler » à la Gmail) ──────────────
+// On retire l'élément localement et on re-rend tout de suite (UI réactive),
+// puis on programme la vraie suppression Supabase après 5 s. Pendant ce délai,
+// un toast « Annuler » permet de tout restaurer sans aucune écriture en base.
+const UNDO_DELAY_MS = 5000;
+let _pendingUndo = null;
+
+function showUndoToast(msg, onUndo) {
+  const el = document.getElementById('toast');
+  el.innerHTML = `<span class="toast-icon">↶</span><span>${msg}</span>`
+    + `<button type="button" class="toast-undo">Annuler</button>`;
+  el.className = 'with-undo';
+  el.classList.remove('hidden');
+  el.querySelector('.toast-undo').onclick = () => {
+    clearTimeout(_toastTimer);
+    el.classList.add('hidden');
+    onUndo();
+  };
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.add('hidden'), UNDO_DELAY_MS);
+}
+
+// removeLocal() : retire l'élément de `state`, renvoie une fonction restore().
+// commitDb()    : exécute la vraie suppression Supabase (appelée après le délai).
+function deleteWithUndo({ removeLocal, commitDb, label = 'Supprimé' }) {
+  // Une suppression déjà en attente est d'abord validée (commit immédiat).
+  if (_pendingUndo) _pendingUndo.flush();
+
+  const restore = removeLocal();
+  render();
+
+  const entry = { done: false };
+  entry.flush = async () => {
+    if (entry.done) return;
+    entry.done = true;
+    clearTimeout(entry.timer);
+    if (_pendingUndo === entry) _pendingUndo = null;
+    try { setSyncing(true); await commitDb(); } catch (e) { /* silencieux */ }
+    finally { setSyncing(false); }
+  };
+  entry.undo = () => {
+    if (entry.done) return;
+    entry.done = true;
+    clearTimeout(entry.timer);
+    if (_pendingUndo === entry) _pendingUndo = null;
+    restore();
+    render();
+    showToast('Restauré', 'success');
+  };
+  entry.timer = setTimeout(() => entry.flush(), UNDO_DELAY_MS);
+  _pendingUndo = entry;
+  showUndoToast(label, () => entry.undo());
+}
+
+// Valide immédiatement toute suppression en attente (ex. avant de quitter l'app).
+function flushPendingUndo() { if (_pendingUndo) _pendingUndo.flush(); }
+
 // ═══════════════════════════════════════════════════════
 // SYNC DOT
 // ═══════════════════════════════════════════════════════
@@ -4858,7 +4974,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=107" alt="MON COMPTE">
+          <img src="icon.png?v=108" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -4886,7 +5002,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=107" alt="MON COMPTE">
+          <img src="icon.png?v=108" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -4909,7 +5025,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=107" alt="MON COMPTE">
+        <img src="icon.png?v=108" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5109,7 +5225,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=107" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=108" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
