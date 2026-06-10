@@ -2342,8 +2342,12 @@ function devinerCategorie(texte) {
   if (candidates.length) {
     let chosen = candidates[0];
     if (candidates.length > 1) {
+      // 1) catégorie la plus fréquente dans l'historique ; 2) à défaut (souvent 0
+      //    partout), la catégorie la plus « riche » en marchands — une catégorie
+      //    à 1 seul marchand (ex. Cadeaux) est un cas particulier, pas le défaut.
       const freq = pr => (state.suivi || []).filter(e => e.libelle_principal === pr).length;
-      chosen = candidates.slice().sort((a, b) => freq(b.principal) - freq(a.principal))[0];
+      const secCount = pr => { const l = (state.libelles || []).find(x => x.principal === pr); return (l && l.secondaires) ? l.secondaires.length : 0; };
+      chosen = candidates.slice().sort((a, b) => (freq(b.principal) - freq(a.principal)) || (secCount(b.principal) - secCount(a.principal)))[0];
     }
     return { libelle_principal: chosen.principal, libelle_secondaire: chosen.secondaire, type_operation: moyen };
   }
@@ -5227,7 +5231,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=113" alt="MON COMPTE">
+          <img src="icon.png?v=114" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -5255,7 +5259,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=113" alt="MON COMPTE">
+          <img src="icon.png?v=114" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -5278,7 +5282,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=113" alt="MON COMPTE">
+        <img src="icon.png?v=114" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5478,7 +5482,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=113" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=114" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
