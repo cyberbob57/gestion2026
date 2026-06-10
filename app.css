@@ -1645,6 +1645,14 @@ html.theme-dark .es-illus {
 .auto-bk-row { display:flex; justify-content:space-between; gap:10px; font-size:13px; margin-top:8px; }
 .auto-bk-row .auto-bk-k { color: var(--text-muted); }
 .auto-bk-row .auto-bk-v { font-weight:600; word-break: break-all; text-align:right; }
+.cloud-snap-row {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:9px 0; border-top:1px solid var(--border);
+}
+.cloud-snap-row:first-child { border-top:none; }
+.cloud-snap-info { min-width:0; }
+.cloud-snap-when { font-size:13px; font-weight:700; color:var(--text); }
+.cloud-snap-row .sub { font-size:11.5px; color:var(--text-muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 /* ── Bannière discrète de rappel sauvegarde ──────────── */
 .backup-banner {

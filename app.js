@@ -3217,6 +3217,13 @@ function renderParametres() {
       </div>
       <div id="auto-backup-body">${autoBackupStatusHTML()}</div>
     </div>
+    <div class="card" style="margin:0 0 12px 0" id="cloud-restore-card">
+      <div class="params-item-left" style="margin-bottom:10px">
+        <div class="name">⏱️ Restaurer depuis le cloud</div>
+        <div class="sub">Snapshots automatiques enregistrés dans votre base (10 plus récents). Choisissez-en un pour fusionner ses données.</div>
+      </div>
+      <div id="cloud-restore-body"><div class="auto-bk-loading">Chargement…</div></div>
+    </div>
     <div class="params-item">
       <div class="params-item-left"><div class="name">☁️ Sauvegarder dans iCloud (manuel)</div><div class="sub">Partage natif → Fichiers → iCloud Drive</div></div>
       <button class="btn-small btn-icloud" onclick="sauvegardeICloud()">Sauvegarder</button>
@@ -3273,6 +3280,8 @@ function bindParametres() {
   });
   // Rafraîchit le statut de l'auto-sauvegarde (lecture asynchrone IndexedDB)
   refreshAutoBackupStatus();
+  // Charge la liste des snapshots cloud restaurables
+  refreshCloudRestoreList();
 }
 
 function toggleLibelleBlock(id) {
@@ -4817,32 +4826,76 @@ async function importData(e) {
     const data = JSON.parse(text);
     if (!data.mensualisations) throw new Error('Format invalide');
     if (!confirm(`Restaurer cette sauvegarde ?\n\n• ${data.mensualisations.length} mensualisations\n• ${data.transactions?.length||0} transactions\n• ${data.suivi?.length||0} opérations de suivi\n\nLes données existantes seront fusionnées.`)) return;
-    setSyncing(true);
-    if (data.mensualisations?.length) {
-      await sb.from('mensualisations').upsert(data.mensualisations);
-    }
-    if (data.transactions?.length) {
-      await sb.from('transactions').upsert(data.transactions);
-    }
-    if (data.libelles?.length) {
-      await sb.from('libelles').upsert(data.libelles);
-    }
-    if (data.suivi?.length) {
-      await sb.from('suivi_mensuel').upsert(data.suivi);
-    }
-    if (data.soldes?.length) {
-      await sb.from('soldes_depart').upsert(data.soldes);
-    }
-    if (data.parametres && typeof data.parametres === 'object') {
-      const params = Object.entries(data.parametres).map(([cle, valeur]) => ({ cle, valeur }));
-      if (params.length) await sb.from('parametres').upsert(params, { onConflict: 'cle' });
-    }
-    setSyncing(false);
+    await applyBackupData(data);
     showToast('Restauration réussie', 'success');
     await loadData();
   } catch (err) {
     setSyncing(false);
     showToast('Erreur d\'import : ' + err.message, 'error');
+  }
+}
+
+// Réinjecte (upsert) un payload de sauvegarde dans Supabase. Partagé entre
+// l'import fichier JSON et la restauration depuis un snapshot cloud.
+async function applyBackupData(data) {
+  setSyncing(true);
+  try {
+    if (data.mensualisations?.length) await sb.from('mensualisations').upsert(data.mensualisations);
+    if (data.transactions?.length)    await sb.from('transactions').upsert(data.transactions);
+    if (data.libelles?.length)        await sb.from('libelles').upsert(data.libelles);
+    if (data.suivi?.length)           await sb.from('suivi_mensuel').upsert(data.suivi);
+    if (data.soldes?.length)          await sb.from('soldes_depart').upsert(data.soldes);
+    if (data.parametres && typeof data.parametres === 'object') {
+      const params = Object.entries(data.parametres).map(([cle, valeur]) => ({ cle, valeur }));
+      if (params.length) await sb.from('parametres').upsert(params, { onConflict: 'cle' });
+    }
+  } finally {
+    setSyncing(false);
+  }
+}
+
+// ── Restauration depuis les snapshots cloud (table Supabase `backups`) ──────
+async function refreshCloudRestoreList() {
+  const body = document.getElementById('cloud-restore-body');
+  if (!body) return;
+  if (!sb || !state.connected) { body.innerHTML = '<div class="sub">Connexion requise.</div>'; return; }
+  const { data, error } = await sb.from('backups')
+    .select('id, created_at, device').order('created_at', { ascending: false }).limit(10);
+  if (error) { body.innerHTML = `<div class="sub">Erreur de chargement : ${escHtml(error.message)}</div>`; return; }
+  if (!data || data.length === 0) {
+    body.innerHTML = `<div class="sub">Aucun snapshot pour l'instant — il s'en crée un automatiquement à l'ouverture de l'app (max 1×/jour) et en quittant.</div>`;
+    return;
+  }
+  body.innerHTML = data.map(s => {
+    const d = new Date(s.created_at);
+    const quand = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+      + ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return `<div class="cloud-snap-row">
+      <div class="cloud-snap-info">
+        <div class="cloud-snap-when">🕒 ${quand}</div>
+        <div class="sub">${escHtml(s.device || 'appareil inconnu')}</div>
+      </div>
+      <button class="btn-small" onclick="restoreFromCloud('${s.id}')">Restaurer</button>
+    </div>`;
+  }).join('');
+}
+
+async function restoreFromCloud(id) {
+  if (!sb || !state.connected) { showToast('Connexion requise', 'error'); return; }
+  setSyncing(true);
+  const { data, error } = await sb.from('backups').select('created_at, payload').eq('id', id).single();
+  setSyncing(false);
+  if (error || !data) { showToast('Snapshot introuvable', 'error'); return; }
+  const payload = data.payload || {};
+  if (!payload.mensualisations) { showToast('Snapshot illisible (format invalide)', 'error'); return; }
+  const quand = new Date(data.created_at).toLocaleString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  if (!confirm(`Restaurer le snapshot du ${quand} ?\n\n• ${payload.mensualisations.length} mensualisations\n• ${payload.transactions?.length || 0} transactions\n• ${payload.suivi?.length || 0} opérations de suivi\n\nLes données actuelles seront fusionnées (les lignes du snapshot écrasent celles de même identifiant).`)) return;
+  try {
+    await applyBackupData(payload);
+    showToast('Restauration réussie ✓', 'success');
+    await loadData();
+  } catch (err) {
+    showToast('Erreur de restauration : ' + (err.message || err), 'error');
   }
 }
 
@@ -5011,7 +5064,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=109" alt="MON COMPTE">
+          <img src="icon.png?v=110" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -5039,7 +5092,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=109" alt="MON COMPTE">
+          <img src="icon.png?v=110" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -5062,7 +5115,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=109" alt="MON COMPTE">
+        <img src="icon.png?v=110" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5262,7 +5315,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=109" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=110" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
