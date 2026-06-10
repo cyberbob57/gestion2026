@@ -858,21 +858,30 @@ function renderDashboard() {
     <div class="chart-container"><canvas id="chart-banque"></canvas></div>
   </div>
 
-  ${upcoming.length > 0 ? `
+  ${upcoming.length > 0 ? (() => {
+    // Résumé « cette semaine » : prélèvements dans les 7 prochains jours
+    const semaine = upcoming.filter(m => m.jour <= today + 7);
+    const totSemaine = semaine.reduce((s, m) => s + parseFloat(m[mk] || 0), 0);
+    return `
   <div class="card">
-    <div class="card-title">Prochains prélèvements</div>
+    <div class="upcoming-head">
+      <div class="card-title" style="margin:0">Prochains prélèvements</div>
+      ${semaine.length ? `<span class="upcoming-week-badge">cette semaine : ${semaine.length} · −${fmt(totSemaine)}</span>` : ''}
+    </div>
     <ul class="upcoming-list">
-      ${upcoming.map(m => `
-      <li class="upcoming-item">
+      ${upcoming.map(m => {
+        const cetteSemaine = m.jour <= today + 7;
+        return `
+      <li class="upcoming-item${cetteSemaine ? ' soon' : ''}">
         <div class="upcoming-day">${m.jour}</div>
         <div class="upcoming-info">
           <div class="name">${m.libelle_secondaire || m.libelle_principal}</div>
           <div class="sub">${m.libelle_principal} · ${m.type_operation || ''}</div>
         </div>
         <div class="upcoming-amount">−${fmt(m[mk])}</div>
-      </li>`).join('')}
+      </li>`; }).join('')}
     </ul>
-  </div>` : ''}`;
+  </div>`; })() : ''}`;
 }
 
 function getSuiviActuelMensu(m) {
@@ -1300,6 +1309,9 @@ function renderSuivi() {
   // Recherche + filtres (n'affectent que l'affichage, pas les totaux)
   const q = (window._suiviSearch || '').trim().toLowerCase();
   const filt = window._suiviFilter || 'tous';
+  const moyen = window._suiviMoyen || '';
+  // Moyens de paiement présents ce mois (base, sans suffixe 4X) pour le filtre rapide
+  const moyensPresents = [...new Set(allRows.map(e => parsePaypal4X(e.type_operation || '').base).filter(Boolean))].sort();
   const rows = allRows.filter(e => {
     if (q) {
       const hay = [e.libelle_principal, e.libelle_secondaire, e.libelle_libre, e.type_operation, e.num_cheque]
@@ -1310,6 +1322,7 @@ function renderSuivi() {
     if (filt === 'nonpointe'&& e.pointe === '✓') return false;
     if (filt === 'debit'    && !(parseFloat(e.debit  || 0) > 0)) return false;
     if (filt === 'credit'   && !(parseFloat(e.credit || 0) > 0)) return false;
+    if (moyen && parsePaypal4X(e.type_operation || '').base !== moyen) return false;
     return true;
   });
   const isFiltered = q !== '' || filt !== 'tous';
@@ -1410,6 +1423,10 @@ function renderSuivi() {
     <div class="suivi-chips">
       ${[['tous','Tous'],['nonpointe','○ Non pointé'],['pointe','✓ Pointé'],['debit','↓ Débit'],['credit','↑ Crédit']]
         .map(([v,l]) => `<button class="fchip${(window._suiviFilter||'tous')===v?' active':''}" onclick="window._suiviFilter='${v}'; render()">${l}</button>`).join('')}
+      ${moyensPresents.length > 1 ? `<select class="suivi-moyen-select${moyen?' active':''}" onchange="window._suiviMoyen=this.value; render()">
+        <option value="">💳 Tous les moyens</option>
+        ${moyensPresents.map(mp => `<option value="${escHtml(mp)}"${moyen===mp?' selected':''}>${escHtml(mp)}</option>`).join('')}
+      </select>` : ''}
     </div>
   </div>` : ''}
 
@@ -1445,7 +1462,7 @@ function renderSuivi() {
     </table>
   </div>`
     : rows.length === 0
-    ? emptyState('🔍', 'Aucun résultat', 'Aucune opération ne correspond à votre recherche ou à ce filtre.', `<button class="es-cta secondary" onclick="window._suiviFilter='tous'; window._suiviSearch=''; render()">✕ Réinitialiser les filtres</button>`)
+    ? emptyState('🔍', 'Aucun résultat', 'Aucune opération ne correspond à votre recherche ou à ce filtre.', `<button class="es-cta secondary" onclick="window._suiviFilter='tous'; window._suiviSearch=''; window._suiviMoyen=''; render()">✕ Réinitialiser les filtres</button>`)
     : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
     <div class="suivi-table-wrap">
     <table class="suivi-table">
@@ -2665,11 +2682,15 @@ function suiviForm(data = {}) {
 
 function showAddSuiviEntry() {
   const today = new Date().getDate();
+  // Saisie en 2 taps : on pré-remplit le dernier moyen de paiement utilisé.
+  const lm = localStorage.getItem('last_moyen');
+  const prefill = { jour: today };
+  if (lm && getMoyensPaiement().includes(lm)) prefill.type_operation = lm;
   openModal(`
   <div class="modal-handle"></div>
   <div class="modal-title">Nouvelle opération</div>
   <div class="modal-form" id="suivi-form">
-    ${suiviForm({ jour: today })}
+    ${suiviForm(prefill)}
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Annuler</button>
       <button class="btn-save" onclick="saveSuiviEntry(null)">Enregistrer</button>
@@ -2731,6 +2752,11 @@ async function saveSuiviEntry(id) {
     }
     data[el.name] = el.value.trim() || null;
   });
+  // Mémorise le moyen de paiement choisi pour pré-remplir la prochaine saisie.
+  try {
+    const b = parsePaypal4X(data.type_operation || '').base;
+    if (b && getMoyensPaiement().includes(b)) localStorage.setItem('last_moyen', b);
+  } catch (e) {}
   // Combine Paypal en 4X + échéance (mode édition : sélecteur unique présent)
   const isPp4xCreation = data.type_operation === 'Paypal en 4X' && !id && Object.keys(ech).length > 0;
   if (data.type_operation === 'Paypal en 4X' && id) {
@@ -5064,7 +5090,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=110" alt="MON COMPTE">
+          <img src="icon.png?v=111" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -5092,7 +5118,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=110" alt="MON COMPTE">
+          <img src="icon.png?v=111" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -5115,7 +5141,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=110" alt="MON COMPTE">
+        <img src="icon.png?v=111" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5315,7 +5341,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=110" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=111" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>

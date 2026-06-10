@@ -379,6 +379,14 @@ a { color: var(--primary-mid); }
 .solde-sub-item .value { font-size: 16px; font-weight: 800; margin-top: 4px; }
 .chart-container { position: relative; height: 180px; margin-top: 8px; }
 .upcoming-list { list-style: none; }
+.upcoming-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.upcoming-week-badge {
+  font-size: 11.5px; font-weight: 800; white-space: nowrap;
+  padding: 4px 11px; border-radius: 999px;
+  background: var(--debit-bg, #FEF2F2); color: var(--debit, #DC2626);
+  border: 1px solid rgba(220,38,38,.18);
+}
+html.theme-dark .upcoming-week-badge { background: rgba(248,113,113,.14); border-color: rgba(248,113,113,.28); }
 .upcoming-item {
   display: flex;
   align-items: center;
@@ -387,6 +395,10 @@ a { color: var(--primary-mid); }
   border-bottom: 1px solid var(--border);
 }
 .upcoming-item:last-child { border-bottom: none; }
+/* Prélèvement imminent (≤ 7 j) : pastille jour mise en avant */
+.upcoming-item.soon .upcoming-day {
+  background: linear-gradient(135deg, #F87171, #DC2626); color: #fff;
+}
 .upcoming-day {
   width: 38px; height: 38px;
   background: var(--primary-light);
@@ -1417,6 +1429,24 @@ html.theme-dark .es-illus {
   transition: background .15s, color .15s, border-color .15s;
 }
 .fchip.active {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary-mid));
+  color: #fff;
+  border-color: transparent;
+}
+.suivi-moyen-select {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--card);
+  color: var(--text-muted);
+  border: 1.5px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+  max-width: 200px;
+}
+.suivi-moyen-select.active {
   background: linear-gradient(135deg, var(--primary-dark), var(--primary-mid));
   color: #fff;
   border-color: transparent;
