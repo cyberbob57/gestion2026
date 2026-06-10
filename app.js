@@ -2325,15 +2325,28 @@ function devinerCategorie(texte) {
   const vide = { libelle_principal: '', libelle_secondaire: '', type_operation: moyen };
   if (!t || t.length < 3) return vide;
 
-  // 1) Sous-catégories (marchands) — match le plus spécifique (le plus long)
-  let mb = null, mbLen = 0;
+  // 1) Sous-catégories (marchands) — match le plus spécifique (le plus long).
+  //    En cas d'égalité (même marchand sous plusieurs catégories, ex. « Super U »
+  //    sous Courses ET Cadeaux), on départage par la catégorie la plus fréquente
+  //    dans l'historique du Suivi.
+  let candidates = [], maxLen = 0;
   for (const l of (state.libelles || [])) {
     for (const sec of (l.secondaires || [])) {
       const ns = _normalizeLibelle(sec);
-      if (ns.length >= 4 && t.includes(ns) && ns.length > mbLen) { mbLen = ns.length; mb = { principal: l.principal, secondaire: sec }; }
+      if (ns.length >= 4 && t.includes(ns)) {
+        if (ns.length > maxLen) { maxLen = ns.length; candidates = [{ principal: l.principal, secondaire: sec }]; }
+        else if (ns.length === maxLen) candidates.push({ principal: l.principal, secondaire: sec });
+      }
     }
   }
-  if (mb) return { libelle_principal: mb.principal, libelle_secondaire: mb.secondaire, type_operation: moyen };
+  if (candidates.length) {
+    let chosen = candidates[0];
+    if (candidates.length > 1) {
+      const freq = pr => (state.suivi || []).filter(e => e.libelle_principal === pr).length;
+      chosen = candidates.slice().sort((a, b) => freq(b.principal) - freq(a.principal))[0];
+    }
+    return { libelle_principal: chosen.principal, libelle_secondaire: chosen.secondaire, type_operation: moyen };
+  }
 
   // 2) Historique : un libellé libre déjà catégorisé (hors « Import CSV ») qui correspond
   let best = null, bestLen = 0;
@@ -5214,7 +5227,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=112" alt="MON COMPTE">
+          <img src="icon.png?v=113" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -5242,7 +5255,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=112" alt="MON COMPTE">
+          <img src="icon.png?v=113" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -5265,7 +5278,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=112" alt="MON COMPTE">
+        <img src="icon.png?v=113" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5465,7 +5478,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=112" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=113" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
