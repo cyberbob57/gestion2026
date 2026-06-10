@@ -2224,7 +2224,12 @@ function renderCSVPreview() {
                    ${p.source === 'manual' ? '✋' : '✓'} ${escHtml((op.libelle_principal||op.libelle_libre||'').slice(0,25))}
                  </span>`;
             } else if (isNew) {
-              matchCell = `<span class="csv-match-new" title="Sera créée puis pointée">✨ Nouvelle op (créée + pointée)</span>`;
+              const c = p.cat || {};
+              const lbl = (c.libelle_secondaire || c.libelle_principal)
+                ? escHtml([c.libelle_principal, c.libelle_secondaire].filter(Boolean).join(' · '))
+                : '<em>à catégoriser</em>';
+              const moy = c.type_operation ? ` · ${escHtml(c.type_operation)}` : '';
+              matchCell = `<span class="csv-match-new" title="Catégorie devinée — bouton ✎ pour ajuster">✨ ${lbl}${moy}</span>`;
             } else {
               matchCell = `<span class="csv-match-no">— Pas trouvé</span>`;
             }
@@ -2234,7 +2239,8 @@ function renderCSVPreview() {
                 actionCell = `<button class="csv-pick-btn" onclick="event.stopPropagation(); csvOpenPicker(${i})" title="Changer la correspondance">↻</button>
                               <button class="csv-clear-btn" onclick="event.stopPropagation(); csvClearPair(${i})" title="Ne pas pointer">✗</button>`;
               } else if (isNew) {
-                actionCell = `<button class="csv-clear-btn" onclick="event.stopPropagation(); csvClearPair(${i})" title="Annuler la création">✗</button>`;
+                actionCell = `<button class="csv-pick-btn" onclick="event.stopPropagation(); csvEditNewCat(${i})" title="Ajuster la catégorie">✎</button>
+                              <button class="csv-clear-btn" onclick="event.stopPropagation(); csvClearPair(${i})" title="Annuler la création">✗</button>`;
               } else {
                 actionCell = `<button class="csv-pick-btn" onclick="event.stopPropagation(); csvOpenPicker(${i})" title="Lier à une op existante">＋ Lier</button>
                               <button class="csv-create-btn" onclick="event.stopPropagation(); csvMarkCreate(${i})" title="Créer cette opération dans le suivi">✨ Créer</button>`;
@@ -2297,21 +2303,135 @@ function csvClearPair(csvIdx) {
 }
 
 // Marque une ligne CSV non liée pour CRÉATION + POINTAGE lors de l'apply
+// ── #4 — Devine le moyen de paiement depuis un libellé bancaire brut ──
+function devinerMoyenPaiement(normText) {
+  const moyens = getMoyensPaiement();
+  const find = (...kws) => moyens.find(m => { const nm = _normalizeLibelle(m); return kws.some(k => nm.includes(k)); });
+  if (/\bvir(ement)?\b/.test(normText))                    return find('virement') || '';
+  if (/\b(prlv|prelevement|prelev|prel)\b/.test(normText)) return find('prelevement') || '';
+  if (/\b(cheque|chq)\b/.test(normText))                   return find('cheque') || '';
+  if (/\b(retrait|dab)\b/.test(normText))                  return find('retrait') || '';
+  if (/\b(cb|carte|paiement|achat)\b/.test(normText))      return find('carte', 'cb', 'visa', 'bleue') || '';
+  return '';
+}
+
+// Devine { libelle_principal, libelle_secondaire, type_operation } depuis le
+// libellé brut d'une ligne CSV bancaire. Sources, par fiabilité décroissante :
+// (1) sous-catégories (noms de marchands) des libellés, (2) historique du Suivi
+// déjà catégorisé, (3) catégorie principale. Champs vides si rien trouvé.
+function devinerCategorie(texte) {
+  const t = _normalizeLibelle(texte);
+  const moyen = devinerMoyenPaiement(t);
+  const vide = { libelle_principal: '', libelle_secondaire: '', type_operation: moyen };
+  if (!t || t.length < 3) return vide;
+
+  // 1) Sous-catégories (marchands) — match le plus spécifique (le plus long)
+  let mb = null, mbLen = 0;
+  for (const l of (state.libelles || [])) {
+    for (const sec of (l.secondaires || [])) {
+      const ns = _normalizeLibelle(sec);
+      if (ns.length >= 4 && t.includes(ns) && ns.length > mbLen) { mbLen = ns.length; mb = { principal: l.principal, secondaire: sec }; }
+    }
+  }
+  if (mb) return { libelle_principal: mb.principal, libelle_secondaire: mb.secondaire, type_operation: moyen };
+
+  // 2) Historique : un libellé libre déjà catégorisé (hors « Import CSV ») qui correspond
+  let best = null, bestLen = 0;
+  for (const e of (state.suivi || [])) {
+    if (!(e.libelle_principal || e.libelle_secondaire)) continue;
+    if (e.libelle_principal === 'Import CSV' && !e.libelle_secondaire) continue;
+    const lib = _normalizeLibelle(e.libelle_libre);
+    if (lib.length >= 4 && (t.includes(lib) || lib.includes(t)) && lib.length > bestLen) { bestLen = lib.length; best = e; }
+  }
+  if (best) return { libelle_principal: best.libelle_principal || '', libelle_secondaire: best.libelle_secondaire || '', type_operation: best.type_operation || moyen };
+
+  // 3) Catégorie principale
+  let pb = '', pbLen = 0;
+  for (const l of (state.libelles || [])) {
+    const np = _normalizeLibelle(l.principal);
+    if (np.length >= 4 && t.includes(np) && np.length > pbLen) { pbLen = np.length; pb = l.principal; }
+  }
+  return { libelle_principal: pb, libelle_secondaire: '', type_operation: moyen };
+}
+
 function csvMarkCreate(csvIdx) {
-  window._csvImport.pairings[csvIdx] = { source: 'new' };
+  const r = window._csvImport.parsed.rows[csvIdx];
+  window._csvImport.pairings[csvIdx] = { source: 'new', cat: devinerCategorie(r && r.libelle) };
   renderCSVPreview();
 }
 
 // Marque TOUTES les lignes CSV sans correspondance pour création
 function csvMarkAllNew() {
-  const { pairings } = window._csvImport;
+  const { pairings, parsed } = window._csvImport;
   let count = 0;
   for (let i = 0; i < pairings.length; i++) {
-    if (!pairings[i]) { pairings[i] = { source: 'new' }; count++; }
+    if (!pairings[i]) { pairings[i] = { source: 'new', cat: devinerCategorie(parsed.rows[i] && parsed.rows[i].libelle) }; count++; }
   }
   if (count === 0) { showToast('Aucune ligne sans correspondance', 'warn'); return; }
   renderCSVPreview();
   showToast(`✨ ${count} ligne(s) à créer marquée(s)`, 'success');
+}
+
+// #4 — Éditeur de catégorie pour une ligne CSV à créer (overlay léger)
+function csvEditNewCat(csvIdx) {
+  const pairing = window._csvImport.pairings[csvIdx];
+  if (!pairing) return;
+  const cat = pairing.cat || { libelle_principal: '', libelle_secondaire: '', type_operation: '' };
+  const r = window._csvImport.parsed.rows[csvIdx];
+  const principals = (state.libelles || []).map(l => l.principal);
+  const moyens = getMoyensPaiement();
+  const overlay = document.createElement('div');
+  overlay.className = 'csv-picker-overlay';
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="csv-picker">
+      <div class="csv-picker-head">
+        <div>
+          <div class="csv-picker-title">Catégoriser cette opération</div>
+          <div class="csv-picker-sub">${escHtml((r && r.libelle || '').slice(0, 60))}</div>
+        </div>
+        <button class="modal-close" onclick="this.closest('.csv-picker-overlay').remove()">×</button>
+      </div>
+      <div class="cne-body">
+        <label class="cne-lbl">Catégorie</label>
+        <select id="cne-principal" onchange="csvCneSyncSecondaires()">
+          <option value="">— À catégoriser —</option>
+          ${principals.map(p => `<option value="${escHtml(p)}"${p === cat.libelle_principal ? ' selected' : ''}>${escHtml(p)}</option>`).join('')}
+        </select>
+        <label class="cne-lbl">Sous-catégorie</label>
+        <select id="cne-secondaire"></select>
+        <label class="cne-lbl">Moyen de paiement</label>
+        <select id="cne-moyen">
+          <option value="">—</option>
+          ${moyens.map(m => `<option value="${escHtml(m)}"${m === cat.type_operation ? ' selected' : ''}>${escHtml(m)}</option>`).join('')}
+        </select>
+        <div class="cne-actions">
+          <button class="btn-cancel" onclick="this.closest('.csv-picker-overlay').remove()">Annuler</button>
+          <button class="btn-primary" onclick="csvSaveNewCat(${csvIdx})">Valider</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  csvCneSyncSecondaires(cat.libelle_secondaire);
+}
+
+function csvCneSyncSecondaires(preselect) {
+  const pSel = document.getElementById('cne-principal');
+  const sSel = document.getElementById('cne-secondaire');
+  if (!pSel || !sSel) return;
+  const lib = (state.libelles || []).find(l => l.principal === pSel.value);
+  const secs = (lib && lib.secondaires) || [];
+  const pre = typeof preselect === 'string' ? preselect : '';
+  sSel.innerHTML = `<option value="">—</option>` + secs.map(s => `<option value="${escHtml(s)}"${s === pre ? ' selected' : ''}>${escHtml(s)}</option>`).join('');
+}
+
+function csvSaveNewCat(csvIdx) {
+  const p = document.getElementById('cne-principal')?.value || '';
+  const s = document.getElementById('cne-secondaire')?.value || '';
+  const m = document.getElementById('cne-moyen')?.value || '';
+  window._csvImport.pairings[csvIdx] = { source: 'new', cat: { libelle_principal: p, libelle_secondaire: s, type_operation: m } };
+  document.querySelectorAll('.csv-picker-overlay').forEach(el => el.remove());
+  renderCSVPreview();
 }
 
 function csvResetToAuto() {
@@ -2400,11 +2520,15 @@ async function applyCSVImport() {
     const rows = toCreate.map(i => {
       const r = parsed.rows[i];
       const d = r.date;
+      // Catégorie devinée (#4) : stockée dans le pairing, sinon recalculée
+      const cat = (pairings[i] && pairings[i].cat) || devinerCategorie(r.libelle);
       return {
         annee: d.getFullYear(),
         mois: d.getMonth() + 1,  // DB stocke mois 1-indexé
         jour: d.getDate(),
-        libelle_principal: 'Import CSV',
+        libelle_principal: cat.libelle_principal || 'Import CSV',
+        libelle_secondaire: cat.libelle_secondaire || null,
+        type_operation: cat.type_operation || null,
         libelle_libre: (r.libelle || '').slice(0, 200),
         debit:  r.amount < 0 ? Math.abs(r.amount) : null,
         credit: r.amount > 0 ? r.amount : null,
@@ -5090,7 +5214,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=111" alt="MON COMPTE">
+          <img src="icon.png?v=112" alt="MON COMPTE">
         </div>
         <h1>Nouveau mot de passe</h1>
         <p class="login-sub">Choisissez votre nouveau mot de passe (≥ 6 caractères)</p>
@@ -5118,7 +5242,7 @@ function showLogin(opts = {}) {
     s.innerHTML = `
       <div class="login-card">
         <div class="login-logo">
-          <img src="icon.png?v=111" alt="MON COMPTE">
+          <img src="icon.png?v=112" alt="MON COMPTE">
         </div>
         <h1>Mot de passe oublié</h1>
         <p class="login-sub">Saisissez votre email — vous recevrez un lien de réinitialisation</p>
@@ -5141,7 +5265,7 @@ function showLogin(opts = {}) {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo">
-        <img src="icon.png?v=111" alt="MON COMPTE">
+        <img src="icon.png?v=112" alt="MON COMPTE">
       </div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">${sub}</p>
@@ -5341,7 +5465,7 @@ function showLockScreen() {
   s.classList.remove('hidden');
   s.innerHTML = `
     <div class="login-card">
-      <div class="login-logo"><img src="icon.png?v=111" alt="MON COMPTE"></div>
+      <div class="login-logo"><img src="icon.png?v=112" alt="MON COMPTE"></div>
       <h1>Gestion 2026</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
