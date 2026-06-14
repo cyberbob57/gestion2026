@@ -4231,7 +4231,7 @@ function comboRenderMenu(id, filter) {
              : `<span class="combo-dot" style="background:${catColor(o)}"></span>`)
       : '';
     const check = sel ? '<span class="combo-check">✓</span>' : '';
-    return `<button type="button" class="combo-opt${sel}" data-val="${escHtml(o)}" onpointerdown="comboPick(event)">${deco}<span class="combo-lbl">${_comboHighlight(o, f)}</span>${check}</button>`;
+    return `<button type="button" class="combo-opt${sel}" data-val="${escHtml(o)}" onclick="comboPick(event)">${deco}<span class="combo-lbl">${_comboHighlight(o, f)}</span>${check}</button>`;
   }).join('');
 }
 
@@ -4272,9 +4272,9 @@ function comboApply(combo, val) {
   if (menu) menu.hidden = true;
   if (id.startsWith('prin-')) updateSecondaires(val, id.slice(5));
 }
-// Clic sur une option
+// Clic sur une option (sur `click`, pas `pointerdown` : un glissement pour
+// faire défiler la liste ne déclenche donc pas de sélection — scroll OK sur iOS)
 function comboPick(ev) {
-  ev.preventDefault(); // garde le focus, évite le blur avant le clic (iOS)
   const btn = ev.currentTarget;
   comboApply(btn.closest('.combo'), btn.getAttribute('data-val') || '');
 }
