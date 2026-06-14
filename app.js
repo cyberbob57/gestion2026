@@ -3342,7 +3342,7 @@ function renderParametres() {
                 ${catLogoControlHTML(l.id, i, getCatLogo(l.principal, s))}
                 <span>${escHtml(s)}</span>
                 <button class="btn-icon" onclick="renameSecondaire('${l.id}', ${i})" title="Renommer">✏️</button>
-                <button class="btn-icon danger" onclick="deleteSecondaire('${l.id}', ${i})" title="Supprimer">×</button>
+                <button class="btn-icon danger" onclick="deleteSecondaire('${l.id}', ${i})" title="Supprimer la sous-catégorie">🗑</button>
               </div>`).join('') || '<div class="sec-empty">Aucun secondaire</div>'}
             </div>
             <div class="chip-input-row" style="margin-top:8px">
@@ -3644,6 +3644,9 @@ async function deleteSecondaire(libId, idx) {
   const lib = state.libelles.find(l => l.id === libId);
   if (!lib) return;
   const secs = getSecondaires(lib.principal);
+  const nom = secs[idx];
+  if (nom == null) return;
+  if (!confirm(`Supprimer la sous-catégorie « ${nom} » ?\nElle ne sera plus proposée à la saisie.\n(Pour seulement retirer son logo, utilisez la petite croix sur la vignette.)`)) return;
   secs.splice(idx, 1);
   const { error } = await sb.from('libelles').update({ secondaires: secs }).eq('id', libId);
   if (error) { showToast('Erreur', 'error'); return; }
