@@ -3072,6 +3072,26 @@ async function saveSuiviEntry(id) {
     data.is_mensualisation = false;
     data.compte = getCompteActif();
   }
+  // Détection de doublon (nouvelles saisies simples) : même compte/mois/année,
+  // même libellé principal + secondaire, même montant, et jour à ±3 → on alerte.
+  if (!id && !isPp4xCreation) {
+    const dup = state.suivi.find(e =>
+      e.mois === data.mois && e.annee === data.annee &&
+      suiviCompte(e) === data.compte &&
+      (e.libelle_principal  || '') === (data.libelle_principal  || '') &&
+      (e.libelle_secondaire || '') === (data.libelle_secondaire || '') &&
+      Math.abs(parseFloat(e.debit  || 0) - (data.debit  || 0)) < 0.005 &&
+      Math.abs(parseFloat(e.credit || 0) - (data.credit || 0)) < 0.005 &&
+      Math.abs((e.jour || 0) - (data.jour || 0)) <= 3
+    );
+    if (dup) {
+      const lbl = data.libelle_secondaire || data.libelle_principal || 'opération';
+      const mnt = fmt(data.debit != null ? data.debit : data.credit);
+      if (!confirm(`Doublon possible ?\nUne opération « ${lbl} » de ${mnt} existe déjà autour du ${dup.jour} ${MOIS_FR[(data.mois || 1) - 1]}.\n\nEnregistrer quand même ?`)) {
+        return;
+      }
+    }
+  }
   // Mémorise l'état AVANT modification : si on déplace la date d'une opération
   // issue d'une mensualisation, on proposera d'aligner aussi la fiche Mensuel.
   const oldEntry = id ? state.suivi.find(x => x.id === id) : null;
@@ -3643,16 +3663,21 @@ async function addSecondaire(libId) {
 async function deleteSecondaire(libId, idx) {
   const lib = state.libelles.find(l => l.id === libId);
   if (!lib) return;
-  const secs = getSecondaires(lib.principal);
-  const nom = secs[idx];
+  const nom = getSecondaires(lib.principal)[idx];
   if (nom == null) return;
-  if (!confirm(`Supprimer la sous-catégorie « ${nom} » ?\nElle ne sera plus proposée à la saisie.\n(Pour seulement retirer son logo, utilisez la petite croix sur la vignette.)`)) return;
-  secs.splice(idx, 1);
-  const { error } = await sb.from('libelles').update({ secondaires: secs }).eq('id', libId);
-  if (error) { showToast('Erreur', 'error'); return; }
-  showToast('Secondaire supprimé');
-  await loadData();
-  navigate('parametres');
+  // Suppression réversible (toast « Annuler ») : aucune écriture en base pendant le délai.
+  deleteWithUndo({
+    label: `Sous-catégorie « ${nom} » supprimée`,
+    removeLocal: () => {
+      const before = lib.secondaires;
+      let arr = Array.isArray(lib.secondaires)
+        ? [...lib.secondaires]
+        : (() => { try { return JSON.parse(lib.secondaires); } catch { return []; } })();
+      lib.secondaires = arr.filter(s => s !== nom);
+      return () => { lib.secondaires = before; };
+    },
+    commitDb: async () => { await sb.from('libelles').update({ secondaires: lib.secondaires }).eq('id', libId); },
+  });
 }
 
 // Migre les clés de cat_logos lors d'un renommage de catégorie/sous-catégorie.
@@ -3767,10 +3792,18 @@ async function addMoyenPaiement() {
 }
 async function deleteMoyenPaiement(idx) {
   const mps = getMoyensPaiement();
-  mps.splice(idx, 1);
-  await setParam('moyens_paiement', JSON.stringify(mps));
-  showToast('Supprimé');
-  navigate('parametres');
+  const nom = mps[idx];
+  if (nom == null) return;
+  const newMps = mps.filter((_, i) => i !== idx);
+  deleteWithUndo({
+    label: `Moyen « ${nom} » supprimé`,
+    removeLocal: () => {
+      const before = state.parametres['moyens_paiement'];
+      state.parametres['moyens_paiement'] = JSON.stringify(newMps);
+      return () => { state.parametres['moyens_paiement'] = before; };
+    },
+    commitDb: async () => { await setParam('moyens_paiement', JSON.stringify(newMps)); },
+  });
 }
 function getAnneeExercice() {
   const v = parseInt(state.parametres['annee_exercice'], 10);
@@ -4729,10 +4762,17 @@ async function addLibellePrincipal() {
 }
 
 async function deleteLibelle(id) {
-  if (!confirm('Supprimer ce libellé ?')) return;
-  await sb.from('libelles').delete().eq('id', id);
-  showToast('Libellé supprimé');
-  await loadData();
+  const lib = state.libelles.find(l => l.id === id);
+  if (!lib) return;
+  deleteWithUndo({
+    label: `Catégorie « ${lib.principal} » supprimée`,
+    removeLocal: () => {
+      const idx = state.libelles.indexOf(lib);
+      state.libelles = state.libelles.filter(l => l.id !== id);
+      return () => { if (idx >= 0) state.libelles.splice(idx, 0, lib); else state.libelles.push(lib); };
+    },
+    commitDb: async () => { await sb.from('libelles').delete().eq('id', id); },
+  });
 }
 
 async function disconnectSb() {
