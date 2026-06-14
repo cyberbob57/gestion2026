@@ -1434,6 +1434,7 @@ function renderSuivi() {
     ? emptyState('📒', 'Aucune opération ce mois', 'Inscrivez vos mensualisations en un clic, ou saisissez une opération manuelle.', '<button class="es-cta" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button><button class="es-cta secondary" onclick="showAddSuiviEntry()">＋ Saisir</button>')
     : entries.length === 0
     ? `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
+    <div class="suivi-table-scroll">
     <div class="suivi-table-wrap">
     <table class="suivi-table">
       <thead>
@@ -1460,10 +1461,11 @@ function renderSuivi() {
         </tr>
       </tfoot>
     </table>
-  </div>`
+  </div></div>`
     : rows.length === 0
     ? emptyState('🔍', 'Aucun résultat', 'Aucune opération ne correspond à votre recherche ou à ce filtre.', `<button class="es-cta secondary" onclick="window._suiviFilter='tous'; window._suiviSearch=''; window._suiviMoyen=''; render()">✕ Réinitialiser les filtres</button>`)
     : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
+    <div class="suivi-table-scroll">
     <div class="suivi-table-wrap">
     <table class="suivi-table">
       <thead>
@@ -1517,7 +1519,7 @@ function renderSuivi() {
         </tr>
       </tfoot>
     </table>
-  </div>`}`;
+  </div></div>`}`;
 }
 
 function bindSuivi() {
@@ -2760,6 +2762,10 @@ function suiviForm(data = {}) {
   const autresComptes = getComptes().filter(c => c.id !== compteSrc);
   const mirror = data.id ? state.suivi.find(x => x.source_id === data.id) : null;
   const compteDestVal = mirror ? mirror.compte : '';
+  // Montant : bascule Débit/Crédit + un seul champ. Les valeurs sont recopiées
+  // dans deux <input hidden> name=credit/name=debit pour rester compatible avec saveSuiviEntry.
+  const initMode = data.credit != null ? 'credit' : 'debit';
+  const initMnt  = data.credit != null ? data.credit : (data.debit != null ? data.debit : '');
   return `
   <div class="row2">
     <div class="form-group">
@@ -2800,15 +2806,15 @@ function suiviForm(data = {}) {
   ${data.id
     ? echeanceGroup4X(uid, isPaypal4X, echeanceVal || 1)
     : echeanceMultiGroup4X(uid, isPaypal4X, parseInt(data.jour) || null, moisVal, anneeVal)}
-  <div class="row2">
-    <div class="form-group">
-      <label>Crédit (€)</label>
-      <input type="text" inputmode="decimal" name="credit" value="${data.credit != null ? data.credit : ''}" placeholder="0,00">
+  <div class="form-group">
+    <label>Montant (€)</label>
+    <div class="dc-toggle" id="dc-${uid}" data-mode="${initMode}">
+      <button type="button" class="dc-btn dc-debit${initMode==='debit'?' active':''}" onclick="montantSetMode(${uid},'debit')">− Débit</button>
+      <button type="button" class="dc-btn dc-credit${initMode==='credit'?' active':''}" onclick="montantSetMode(${uid},'credit')">＋ Crédit</button>
     </div>
-    <div class="form-group">
-      <label>Débit (€)</label>
-      <input type="text" inputmode="decimal" name="debit" value="${data.debit != null ? data.debit : ''}" placeholder="0,00">
-    </div>
+    <input type="text" inputmode="decimal" id="mnt-${uid}" class="dc-montant dc-${initMode}-on" value="${initMnt}" placeholder="0,00" oninput="montantInput(${uid})">
+    <input type="hidden" name="credit" id="hid-credit-${uid}" value="${data.credit != null ? data.credit : ''}">
+    <input type="hidden" name="debit"  id="hid-debit-${uid}"  value="${data.debit  != null ? data.debit  : ''}">
   </div>
   ${autresComptes.length ? `
   <div class="form-group">
@@ -2819,6 +2825,31 @@ function suiviForm(data = {}) {
     </select>
     <div class="sub" style="margin-top:4px;font-size:11px;color:#888">Si renseigné, le montant débité ici sera crédité sur le compte choisi (et inversement).</div>
   </div>` : ''}`;
+}
+
+// Bascule Débit/Crédit du champ montant : met à jour les couleurs + recopie la valeur
+function montantSetMode(uid, mode) {
+  const root = document.getElementById('dc-' + uid);
+  if (!root) return;
+  root.setAttribute('data-mode', mode);
+  const bd = root.querySelector('.dc-debit'), bc = root.querySelector('.dc-credit');
+  if (bd) bd.classList.toggle('active', mode === 'debit');
+  if (bc) bc.classList.toggle('active', mode === 'credit');
+  const mnt = document.getElementById('mnt-' + uid);
+  if (mnt) { mnt.classList.toggle('dc-debit-on', mode === 'debit'); mnt.classList.toggle('dc-credit-on', mode === 'credit'); }
+  montantInput(uid);
+  if (mnt) mnt.focus();
+}
+// Recopie le montant saisi dans le champ caché credit ou debit selon le mode actif
+function montantInput(uid) {
+  const root = document.getElementById('dc-' + uid);
+  const mode = root ? (root.getAttribute('data-mode') || 'debit') : 'debit';
+  const mnt  = document.getElementById('mnt-' + uid);
+  const v    = mnt ? mnt.value : '';
+  const cred = document.getElementById('hid-credit-' + uid);
+  const deb  = document.getElementById('hid-debit-' + uid);
+  if (mode === 'credit') { if (cred) cred.value = v; if (deb) deb.value = ''; }
+  else                   { if (deb)  deb.value  = v; if (cred) cred.value = ''; }
 }
 
 function showAddSuiviEntry() {
@@ -2837,6 +2868,9 @@ function showAddSuiviEntry() {
       <button class="btn-save" onclick="saveSuiviEntry(null)">Enregistrer</button>
     </div>
   </div>`);
+  // Focus auto sur le montant (synchrone = garde le geste tactile → ouvre le clavier iOS)
+  const mnt = document.querySelector('#suivi-form .dc-montant');
+  if (mnt) mnt.focus();
 }
 
 function showEditSuiviEntry(id) {
@@ -4043,23 +4077,44 @@ async function ensureLibelleExists(principal, secondaire) {
 //    peut choisir une option OU taper un libellé libre. Fonctionne à
 //    l'identique sur Mac et iPhone.
 // _comboData : id ("prin-<uid>" / "sec-<uid>") -> liste d'options
+// _comboMeta : id -> { icon:true } pour décorer les options (emoji + couleur de catégorie)
 const _comboData = {};
+const _comboMeta = {};
 
 function comboSetOptions(id, opts) { _comboData[id] = Array.isArray(opts) ? opts : []; }
+
+// Surligne la portion tapée dans une option
+function _comboHighlight(text, f) {
+  const t = String(text == null ? '' : text);
+  if (!f) return escHtml(t);
+  const idx = t.toLowerCase().indexOf(f);
+  if (idx < 0) return escHtml(t);
+  return escHtml(t.slice(0, idx)) + '<mark class="combo-hl">' + escHtml(t.slice(idx, idx + f.length)) + '</mark>' + escHtml(t.slice(idx + f.length));
+}
 
 function comboRenderMenu(id, filter) {
   const menu = document.getElementById('menu-' + id);
   if (!menu) return;
+  const inp = document.querySelector('#combo-' + id + ' .combo-input');
+  const current = inp ? inp.value : '';
   const f = String(filter || '').toLowerCase().trim();
   const all = _comboData[id] || [];
   const opts = f ? all.filter(o => String(o || '').toLowerCase().includes(f)) : all;
+  const withIcon = !!(_comboMeta[id] && _comboMeta[id].icon);
   if (!opts.length) {
     menu.innerHTML = `<div class="combo-empty">Aucune correspondance — saisie libre</div>`;
     return;
   }
-  menu.innerHTML = opts.map(o =>
-    `<button type="button" class="combo-opt" data-val="${escHtml(o)}" onpointerdown="comboPick(event)">${escHtml(o)}</button>`
-  ).join('');
+  menu.innerHTML = opts.map(o => {
+    const sel  = (o === current) ? ' is-selected' : '';
+    const emo  = CAT_ICONS[o];
+    const deco = withIcon
+      ? (emo ? `<span class="combo-ico">${emo}</span>`
+             : `<span class="combo-dot" style="background:${catColor(o)}"></span>`)
+      : '';
+    const check = sel ? '<span class="combo-check">✓</span>' : '';
+    return `<button type="button" class="combo-opt${sel}" data-val="${escHtml(o)}" onpointerdown="comboPick(event)">${deco}<span class="combo-lbl">${_comboHighlight(o, f)}</span>${check}</button>`;
+  }).join('');
 }
 
 // Ouvre le menu d'un champ (et ferme les autres)
@@ -4089,12 +4144,8 @@ function comboFilter(id, val) {
   const menu = document.getElementById('menu-' + id);
   if (menu) menu.hidden = false;
 }
-// Clic sur une option
-function comboPick(ev) {
-  ev.preventDefault(); // garde le focus, évite le blur avant le clic (iOS)
-  const btn = ev.currentTarget;
-  const val = btn.getAttribute('data-val') || '';
-  const combo = btn.closest('.combo');
+// Applique une valeur choisie au champ (cœur commun clic + Entrée)
+function comboApply(combo, val) {
   if (!combo) return;
   const id  = combo.id.replace('combo-', '');     // "prin-<uid>" ou "sec-<uid>"
   const inp = combo.querySelector('.combo-input');
@@ -4103,12 +4154,39 @@ function comboPick(ev) {
   if (menu) menu.hidden = true;
   if (id.startsWith('prin-')) updateSecondaires(val, id.slice(5));
 }
+// Clic sur une option
+function comboPick(ev) {
+  ev.preventDefault(); // garde le focus, évite le blur avant le clic (iOS)
+  const btn = ev.currentTarget;
+  comboApply(btn.closest('.combo'), btn.getAttribute('data-val') || '');
+}
+// Clavier : Entrée = valide la 1ʳᵉ option filtrée, Échap = ferme
+function comboKey(ev, id) {
+  const menu = document.getElementById('menu-' + id);
+  if (ev.key === 'Enter') {
+    if (menu && !menu.hidden) {
+      const first = menu.querySelector('.combo-opt');
+      if (first) { ev.preventDefault(); comboApply(document.getElementById('combo-' + id), first.getAttribute('data-val') || ''); }
+    }
+  } else if (ev.key === 'Escape') {
+    if (menu) menu.hidden = true;
+  }
+}
 
 // Ferme tous les menus quand on tape ailleurs
 document.addEventListener('pointerdown', (e) => {
   if (e.target.closest && e.target.closest('.combo')) return;
   document.querySelectorAll('.combo-menu').forEach(m => { m.hidden = true; });
 });
+
+// Tableau Suivi : masque l'indicateur de défilement (→) quand on a atteint le bord droit.
+// Listener global en capture → survit aux re-rendus du tableau.
+document.addEventListener('scroll', (e) => {
+  const w = e.target;
+  if (!w || !w.classList || !w.classList.contains('suivi-table-wrap')) return;
+  const atEnd = w.scrollLeft + w.clientWidth >= w.scrollWidth - 4;
+  if (w.parentElement) w.parentElement.classList.toggle('is-scrolled-end', atEnd);
+}, true);
 
 function updateSecondaires(principalVal, uid) {
   const secs = getSecondaires(principalVal);
@@ -4126,6 +4204,7 @@ function libSelects(data = {}) {
   const initSecs   = getSecondaires(data.libelle_principal || '');
   comboSetOptions('prin-' + uid, principals);
   comboSetOptions('sec-' + uid, initSecs);
+  _comboMeta['prin-' + uid] = { icon: true };   // emoji + couleur de catégorie dans le menu
   return `
   <div class="form-group">
     <label>Libellé principal</label>
@@ -4134,7 +4213,8 @@ function libSelects(data = {}) {
              value="${escHtml(data.libelle_principal||'')}"
              placeholder="Choisir ou saisir…" autocomplete="off"
              oninput="comboFilter('prin-${uid}',this.value);updateSecondaires(this.value,${uid})"
-             onfocus="comboOpen('prin-${uid}')">
+             onfocus="comboOpen('prin-${uid}')"
+             onkeydown="comboKey(event,'prin-${uid}')">
       <button type="button" class="combo-toggle" tabindex="-1" aria-label="Ouvrir la liste" onclick="comboToggle('prin-${uid}')">▾</button>
       <div class="combo-menu" id="menu-prin-${uid}" hidden></div>
     </div>
@@ -4146,7 +4226,8 @@ function libSelects(data = {}) {
              value="${escHtml(data.libelle_secondaire||'')}"
              placeholder="Choisir ou saisir…" autocomplete="off"
              oninput="comboFilter('sec-${uid}',this.value)"
-             onfocus="comboOpen('sec-${uid}')">
+             onfocus="comboOpen('sec-${uid}')"
+             onkeydown="comboKey(event,'sec-${uid}')">
       <button type="button" class="combo-toggle" tabindex="-1" aria-label="Ouvrir la liste" onclick="comboToggle('sec-${uid}')">▾</button>
       <div class="combo-menu" id="menu-sec-${uid}" hidden></div>
     </div>
