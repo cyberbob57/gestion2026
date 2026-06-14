@@ -1045,6 +1045,17 @@ html.theme-dark .combo-hl { background: rgba(96,165,250,.28); }
 html.theme-dark .dc-btn { background: #0F172A; }
 html.theme-dark .dc-debit.active  { background: rgba(220,38,38,.18);  border-color: rgba(220,38,38,.5); }
 html.theme-dark .dc-credit.active { background: rgba(5,150,105,.18); border-color: rgba(5,150,105,.5); }
+/* Barre d'opérateurs du mini-calcul */
+.calc-ops { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.calc-op {
+  padding: 9px; border-radius: 10px; font-size: 16px; font-weight: 700;
+  border: 1.5px solid var(--border); background: #FAFBFF; color: var(--text);
+  cursor: pointer; transition: background .12s, transform .1s;
+}
+.calc-op:active { transform: scale(.94); background: var(--bg); }
+.calc-op.calc-eq  { color: var(--primary-mid); border-color: var(--primary-mid); }
+.calc-op.calc-clr { color: var(--text-muted); }
+html.theme-dark .calc-op { background: #0F172A; }
 .modal-form .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-form .months-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .mensu-repeat-toggle { display: flex; align-items: center; gap: 9px; margin: 2px 0 12px; font-size: 14px; font-weight: 600; cursor: pointer; }
@@ -1530,6 +1541,50 @@ html.theme-dark .dc-credit.active { background: rgba(5,150,105,.18); border-colo
   color: #fff;
   border-color: transparent;
 }
+
+/* ── Mini-camembert dépenses par catégorie (Accueil) ──── */
+.cats-wrap { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cats-donut { width: 130px; height: 130px; flex: 0 0 auto; position: relative; }
+.cats-legend { flex: 1 1 170px; min-width: 0; list-style: none; margin: 0; padding: 0; }
+.cats-legend li { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+.cats-dot { flex: 0 0 auto; width: 11px; height: 11px; border-radius: 3px; }
+.cats-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.cats-val { flex: 0 0 auto; font-weight: 700; color: var(--text); text-align: right; }
+.cats-val small { display: block; font-weight: 600; font-size: 10px; color: var(--text-muted); }
+
+/* ── Puces de filtre par catégorie ────────────────────── */
+.suivi-cat-chips {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 8px;
+  padding-bottom: 2px;
+}
+.catchip {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 13px 6px 11px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+  background: var(--card);
+  color: var(--text);
+  border: 1.5px solid color-mix(in srgb, var(--cc) 45%, var(--border));
+  white-space: nowrap;
+  position: relative; padding-left: 22px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.catchip::before {
+  content: ''; position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  width: 8px; height: 8px; border-radius: 50%; background: var(--cc);
+}
+.catchip-ico { font-size: 13px; line-height: 1; }
+.catchip.active {
+  background: var(--cc);
+  color: #fff;
+  border-color: transparent;
+}
+.catchip.active::before { background: rgba(255,255,255,.85); }
 
 /* ── Bouton Dupliquer ──────────────────────────────────── */
 .modal-actions-edit { flex-wrap: wrap; }

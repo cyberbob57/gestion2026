@@ -757,6 +757,26 @@ function mascotteSVG(solde, totalCredit) {
 // ═══════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════
+// Dépenses (débits) du mois agrégées par catégorie principale, triées décroissant.
+// Au-delà de `maxItems`, le reste est regroupé sous « Autres ».
+function getDepensesParCategorie(maxItems = 5) {
+  const mk = MOIS_KEYS[state.mois];
+  const by = {};
+  state.mensualisations
+    .filter(m => m.operation === 'Débit' && m[mk] != null)
+    .forEach(m => { const k = m.libelle_principal || 'Autres'; by[k] = (by[k] || 0) + parseFloat(m[mk] || 0); });
+  state.transactions
+    .filter(t => isSameMois(t.date_transaction) && t.operation === 'Débit')
+    .forEach(t => { const k = t.libelle_principal || 'Autres'; by[k] = (by[k] || 0) + parseFloat(t.montant || 0); });
+  let arr = Object.entries(by).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  if (arr.length > maxItems) {
+    const reste = arr.slice(maxItems).reduce((s, [, v]) => s + v, 0);
+    arr = arr.slice(0, maxItems);
+    if (reste > 0) arr.push(['Autres', reste]);
+  }
+  return arr;
+}
+
 function renderDashboard() {
   const mk = MOIS_KEYS[state.mois];
   const mensuD = state.mensualisations.filter(m => m.operation === 'Débit' && m[mk] != null).reduce((s,m) => s + parseFloat(m[mk]||0), 0);
@@ -847,6 +867,26 @@ function renderDashboard() {
       </div>
     </div>
   </div>
+
+  ${(() => {
+    const cats = getDepensesParCategorie();
+    if (!cats.length) return '';
+    const tot = cats.reduce((s, [, v]) => s + v, 0);
+    return `
+  <div class="card">
+    <div class="card-title">Dépenses par catégorie — ${MOIS_FR[state.mois]}</div>
+    <div class="cats-wrap">
+      <div class="cats-donut"><canvas id="chart-cats"></canvas></div>
+      <ul class="cats-legend">
+        ${cats.map(([n, v]) => `<li>
+          <span class="cats-dot" style="background:${n === 'Autres' ? '#94A3B8' : catColor(n)}"></span>
+          <span class="cats-name">${CAT_ICONS[n] ? CAT_ICONS[n] + ' ' : ''}${escHtml(n)}</span>
+          <span class="cats-val">${fmt(v)}<small>${tot > 0 ? Math.round(v / tot * 100) : 0}%</small></span>
+        </li>`).join('')}
+      </ul>
+    </div>
+  </div>`;
+  })()}
 
   <div class="card">
     <div class="card-title">Évolution 6 mois</div>
@@ -1015,6 +1055,31 @@ function bindDashboard() {
         scales: {
           x: { grid: { display: false }, ticks: { color: ct.text } },
           y: { grid: { color: ct.grid }, ticks: { color: ct.text, callback: v => v.toLocaleString('fr-FR') + ' €' } }
+        }
+      }
+    });
+  }
+
+  // Mini-camembert des dépenses par catégorie
+  const cc = document.getElementById('chart-cats');
+  if (cc) {
+    const cats = getDepensesParCategorie();
+    new Chart(cc, {
+      type: 'doughnut',
+      data: {
+        labels: cats.map(c => c[0]),
+        datasets: [{
+          data: cats.map(c => parseFloat(c[1].toFixed(2))),
+          backgroundColor: cats.map(c => c[0] === 'Autres' ? '#94A3B8' : catColor(c[0])),
+          borderColor: ct.cardBg,
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '62%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => ` ${c.label} : ${fmt(c.parsed)}` } }
         }
       }
     });
@@ -1310,6 +1375,10 @@ function renderSuivi() {
   const q = (window._suiviSearch || '').trim().toLowerCase();
   const filt = window._suiviFilter || 'tous';
   const moyen = window._suiviMoyen || '';
+  const cat = window._suiviCat || '';
+  // Catégories présentes ce mois (pour les puces de filtre rapide)
+  const catsPresentes = [...new Set(allRows.map(e => e.libelle_principal).filter(Boolean))]
+    .sort((a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base' }));
   // Moyens de paiement présents ce mois (base, sans suffixe 4X) pour le filtre rapide
   const moyensPresents = [...new Set(allRows.map(e => parsePaypal4X(e.type_operation || '').base).filter(Boolean))].sort();
   const rows = allRows.filter(e => {
@@ -1323,9 +1392,10 @@ function renderSuivi() {
     if (filt === 'debit'    && !(parseFloat(e.debit  || 0) > 0)) return false;
     if (filt === 'credit'   && !(parseFloat(e.credit || 0) > 0)) return false;
     if (moyen && parsePaypal4X(e.type_operation || '').base !== moyen) return false;
+    if (cat && e.libelle_principal !== cat) return false;
     return true;
   });
-  const isFiltered = q !== '' || filt !== 'tous';
+  const isFiltered = q !== '' || filt !== 'tous' || cat !== '' || moyen !== '';
 
   return `
   <div class="compte-selector">
@@ -1428,6 +1498,10 @@ function renderSuivi() {
         ${moyensPresents.map(mp => `<option value="${escHtml(mp)}"${moyen===mp?' selected':''}>${escHtml(mp)}</option>`).join('')}
       </select>` : ''}
     </div>
+    ${catsPresentes.length > 1 ? `<div class="suivi-cat-chips">
+      <button class="catchip${!cat?' active':''}" style="--cc:var(--text-muted)" onclick="suiviSetCat(this)" data-cat="">Toutes</button>
+      ${catsPresentes.map(c => `<button class="catchip${cat===c?' active':''}" style="--cc:${catColor(c)}" onclick="suiviSetCat(this)" data-cat="${escHtml(c)}">${CAT_ICONS[c]?`<span class="catchip-ico">${CAT_ICONS[c]}</span>`:''}${escHtml(c)}</button>`).join('')}
+    </div>` : ''}
   </div>` : ''}
 
   ${entries.length === 0 && getCompteActif() === 'courant'
@@ -1463,7 +1537,7 @@ function renderSuivi() {
     </table>
   </div></div>`
     : rows.length === 0
-    ? emptyState('🔍', 'Aucun résultat', 'Aucune opération ne correspond à votre recherche ou à ce filtre.', `<button class="es-cta secondary" onclick="window._suiviFilter='tous'; window._suiviSearch=''; window._suiviMoyen=''; render()">✕ Réinitialiser les filtres</button>`)
+    ? emptyState('🔍', 'Aucun résultat', 'Aucune opération ne correspond à votre recherche ou à ce filtre.', `<button class="es-cta secondary" onclick="window._suiviFilter='tous'; window._suiviSearch=''; window._suiviMoyen=''; window._suiviCat=''; render()">✕ Réinitialiser les filtres</button>`)
     : `<div class="suivi-scroll-hint">← glissez le tableau pour voir Pointage · Crédit · Débit →</div>
     <div class="suivi-table-scroll">
     <div class="suivi-table-wrap">
@@ -1520,6 +1594,13 @@ function renderSuivi() {
       </tfoot>
     </table>
   </div></div>`}`;
+}
+
+// Filtre rapide par catégorie (puces). Re-cliquer la catégorie active la désactive.
+function suiviSetCat(btn) {
+  const v = btn.dataset.cat || '';
+  window._suiviCat = (window._suiviCat === v && v) ? '' : v;
+  render();
 }
 
 function bindSuivi() {
@@ -2812,7 +2893,13 @@ function suiviForm(data = {}) {
       <button type="button" class="dc-btn dc-debit${initMode==='debit'?' active':''}" onclick="montantSetMode(${uid},'debit')">− Débit</button>
       <button type="button" class="dc-btn dc-credit${initMode==='credit'?' active':''}" onclick="montantSetMode(${uid},'credit')">＋ Crédit</button>
     </div>
-    <input type="text" inputmode="decimal" id="mnt-${uid}" class="dc-montant dc-${initMode}-on" value="${initMnt}" placeholder="0,00" oninput="montantInput(${uid})">
+    <input type="text" inputmode="decimal" id="mnt-${uid}" class="dc-montant dc-${initMode}-on" value="${initMnt}" placeholder="0,00" oninput="montantInput(${uid})" onblur="evalMontant(${uid})">
+    <div class="calc-ops">
+      <button type="button" class="calc-op" onpointerdown="calcOp(event,${uid},'+')">＋</button>
+      <button type="button" class="calc-op" onpointerdown="calcOp(event,${uid},'-')">−</button>
+      <button type="button" class="calc-op calc-eq" onpointerdown="calcOp(event,${uid},'=')">=</button>
+      <button type="button" class="calc-op calc-clr" onpointerdown="calcOp(event,${uid},'C')" aria-label="Effacer">⌫</button>
+    </div>
     <input type="hidden" name="credit" id="hid-credit-${uid}" value="${data.credit != null ? data.credit : ''}">
     <input type="hidden" name="debit"  id="hid-debit-${uid}"  value="${data.debit  != null ? data.debit  : ''}">
   </div>
@@ -2850,6 +2937,34 @@ function montantInput(uid) {
   const deb  = document.getElementById('hid-debit-' + uid);
   if (mode === 'credit') { if (cred) cred.value = v; if (deb) deb.value = ''; }
   else                   { if (deb)  deb.value  = v; if (cred) cred.value = ''; }
+}
+// Mini-calcul : évalue une expression saisie dans le champ montant (ex. "12+3,50-1" → "14,50")
+function evalMontant(uid) {
+  const mnt = document.getElementById('mnt-' + uid);
+  if (!mnt) return;
+  const raw = (mnt.value || '').trim();
+  if (!raw) { montantInput(uid); return; }
+  const expr = raw.replace(/\s+/g, '').replace(/,/g, '.').replace(/×/g, '*').replace(/÷/g, '/');
+  // N'évalue que s'il y a un opérateur (hors signe initial) et uniquement des caractères de calcul
+  if (!/[+\-*/]/.test(expr.slice(1)))   { montantInput(uid); return; }
+  if (!/^[0-9+\-*/.()]+$/.test(expr))   { montantInput(uid); return; }
+  try {
+    const val = Function('"use strict";return (' + expr + ')')();
+    if (typeof val === 'number' && isFinite(val)) {
+      mnt.value = String(Math.round(val * 100) / 100).replace('.', ',');
+    }
+  } catch (e) { /* expression invalide : on laisse la saisie telle quelle */ }
+  montantInput(uid);
+}
+// Barre d'opérateurs (＋ − = ⌫) : insère le signe sans perdre le focus (le pavé reste ouvert sur iPhone)
+function calcOp(ev, uid, op) {
+  ev.preventDefault();
+  const mnt = document.getElementById('mnt-' + uid);
+  if (!mnt) return;
+  if (op === '=')      { evalMontant(uid); }
+  else if (op === 'C') { mnt.value = (mnt.value || '').slice(0, -1); montantInput(uid); }
+  else                 { mnt.value = (mnt.value || '') + op; }
+  mnt.focus();
 }
 
 function showAddSuiviEntry() {
@@ -2913,6 +3028,9 @@ function dupliquerSuiviEntry(id) {
 
 async function saveSuiviEntry(id) {
   const form = document.getElementById('suivi-form');
+  // Évalue un éventuel calcul resté dans le champ montant (ex. "12+3") avant lecture des champs cachés
+  const mntEl = form.querySelector('.dc-montant');
+  if (mntEl && mntEl.id) evalMontant(mntEl.id.replace('mnt-', ''));
   const data = {};
   // On extrait à part les champs Éch 2/3/4 (mode 4X création)
   const ech = {};
