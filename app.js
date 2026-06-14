@@ -4038,41 +4038,118 @@ async function ensureLibelleExists(principal, secondaire) {
   await sb.from('libelles').update({ secondaires: next }).eq('id', existing.id);
 }
 
+// ── Combobox custom — remplace <datalist> (non fiable sur iOS Safari :
+//    aucun menu ne s'affiche). Liste qui s'ouvre sous le champ, où l'on
+//    peut choisir une option OU taper un libellé libre. Fonctionne à
+//    l'identique sur Mac et iPhone.
+// _comboData : id ("prin-<uid>" / "sec-<uid>") -> liste d'options
+const _comboData = {};
+
+function comboSetOptions(id, opts) { _comboData[id] = Array.isArray(opts) ? opts : []; }
+
+function comboRenderMenu(id, filter) {
+  const menu = document.getElementById('menu-' + id);
+  if (!menu) return;
+  const f = String(filter || '').toLowerCase().trim();
+  const all = _comboData[id] || [];
+  const opts = f ? all.filter(o => String(o || '').toLowerCase().includes(f)) : all;
+  if (!opts.length) {
+    menu.innerHTML = `<div class="combo-empty">Aucune correspondance — saisie libre</div>`;
+    return;
+  }
+  menu.innerHTML = opts.map(o =>
+    `<button type="button" class="combo-opt" data-val="${escHtml(o)}" onpointerdown="comboPick(event)">${escHtml(o)}</button>`
+  ).join('');
+}
+
+// Ouvre le menu d'un champ (et ferme les autres)
+function comboOpen(id) {
+  const menu = document.getElementById('menu-' + id);
+  if (!menu) return;
+  document.querySelectorAll('.combo-menu').forEach(m => { if (m !== menu) m.hidden = true; });
+  const inp = document.querySelector('#combo-' + id + ' .combo-input');
+  comboRenderMenu(id, inp ? inp.value : '');
+  menu.hidden = false;
+}
+// Bouton ▾ : ouvre/ferme
+function comboToggle(id) {
+  const menu = document.getElementById('menu-' + id);
+  if (!menu) return;
+  if (menu.hidden) {
+    comboOpen(id);
+    const inp = document.querySelector('#combo-' + id + ' .combo-input');
+    if (inp) inp.focus();
+  } else {
+    menu.hidden = true;
+  }
+}
+// Frappe au clavier : filtre + garde le menu ouvert
+function comboFilter(id, val) {
+  comboRenderMenu(id, val);
+  const menu = document.getElementById('menu-' + id);
+  if (menu) menu.hidden = false;
+}
+// Clic sur une option
+function comboPick(ev) {
+  ev.preventDefault(); // garde le focus, évite le blur avant le clic (iOS)
+  const btn = ev.currentTarget;
+  const val = btn.getAttribute('data-val') || '';
+  const combo = btn.closest('.combo');
+  if (!combo) return;
+  const id  = combo.id.replace('combo-', '');     // "prin-<uid>" ou "sec-<uid>"
+  const inp = combo.querySelector('.combo-input');
+  if (inp) inp.value = val;
+  const menu = combo.querySelector('.combo-menu');
+  if (menu) menu.hidden = true;
+  if (id.startsWith('prin-')) updateSecondaires(val, id.slice(5));
+}
+
+// Ferme tous les menus quand on tape ailleurs
+document.addEventListener('pointerdown', (e) => {
+  if (e.target.closest && e.target.closest('.combo')) return;
+  document.querySelectorAll('.combo-menu').forEach(m => { m.hidden = true; });
+});
+
 function updateSecondaires(principalVal, uid) {
   const secs = getSecondaires(principalVal);
-  const dl  = document.getElementById('dl-sec-' + uid);
-  const inp = document.getElementById('inp-sec-' + uid);
-  if (!dl) return;
-  // Mettre à jour la liste des options
-  dl.innerHTML = secs.map(s => `<option value="${escHtml(s)}">`).join('');
+  comboSetOptions('sec-' + uid, secs);
+  const inp = document.querySelector('#combo-sec-' + uid + ' .combo-input');
   // Vider le secondaire si la valeur actuelle n'appartient pas à la nouvelle liste
   if (inp && secs.length > 0 && !secs.includes(inp.value)) inp.value = '';
+  const menu = document.getElementById('menu-sec-' + uid);
+  if (menu && !menu.hidden) comboRenderMenu('sec-' + uid, inp ? inp.value : '');
 }
 
 function libSelects(data = {}) {
-  const uid       = ++_libUid;
+  const uid        = ++_libUid;
   const principals = state.libelles.map(l => l.principal).sort((a,b) => String(a||'').localeCompare(String(b||''), 'fr', { sensitivity: 'base' }));
   const initSecs   = getSecondaires(data.libelle_principal || '');
+  comboSetOptions('prin-' + uid, principals);
+  comboSetOptions('sec-' + uid, initSecs);
   return `
   <div class="form-group">
     <label>Libellé principal</label>
-    <input type="text" name="libelle_principal"
-           value="${escHtml(data.libelle_principal||'')}"
-           list="dl-prin-${uid}" placeholder="Choisir ou saisir…"
-           oninput="updateSecondaires(this.value,${uid})"
-           onchange="updateSecondaires(this.value,${uid})">
-    <datalist id="dl-prin-${uid}">
-      ${principals.map(p => `<option value="${escHtml(p)}">`).join('')}
-    </datalist>
+    <div class="combo" id="combo-prin-${uid}">
+      <input type="text" name="libelle_principal" class="combo-input"
+             value="${escHtml(data.libelle_principal||'')}"
+             placeholder="Choisir ou saisir…" autocomplete="off"
+             oninput="comboFilter('prin-${uid}',this.value);updateSecondaires(this.value,${uid})"
+             onfocus="comboOpen('prin-${uid}')">
+      <button type="button" class="combo-toggle" tabindex="-1" aria-label="Ouvrir la liste" onclick="comboToggle('prin-${uid}')">▾</button>
+      <div class="combo-menu" id="menu-prin-${uid}" hidden></div>
+    </div>
   </div>
   <div class="form-group">
     <label>Libellé secondaire</label>
-    <input type="text" id="inp-sec-${uid}" name="libelle_secondaire"
-           value="${escHtml(data.libelle_secondaire||'')}"
-           list="dl-sec-${uid}" placeholder="Choisir ou saisir…">
-    <datalist id="dl-sec-${uid}">
-      ${initSecs.map(s => `<option value="${escHtml(s)}">`).join('')}
-    </datalist>
+    <div class="combo" id="combo-sec-${uid}">
+      <input type="text" name="libelle_secondaire" class="combo-input"
+             value="${escHtml(data.libelle_secondaire||'')}"
+             placeholder="Choisir ou saisir…" autocomplete="off"
+             oninput="comboFilter('sec-${uid}',this.value)"
+             onfocus="comboOpen('sec-${uid}')">
+      <button type="button" class="combo-toggle" tabindex="-1" aria-label="Ouvrir la liste" onclick="comboToggle('sec-${uid}')">▾</button>
+      <div class="combo-menu" id="menu-sec-${uid}" hidden></div>
+    </div>
   </div>`;
 }
 

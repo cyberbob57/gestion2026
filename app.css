@@ -966,6 +966,36 @@ html.theme-dark .es-illus {
 }
 .modal-form input:focus,
 .modal-form select:focus { border-color: var(--primary-mid); box-shadow: 0 0 0 4px rgba(37,99,235,.1); }
+
+/* ── Combobox custom (menu déroulant fiable iOS + Mac, remplace datalist) ── */
+.combo { position: relative; }
+.combo .combo-input { padding-right: 42px; }
+.combo-toggle {
+  position: absolute; top: 0; right: 0; height: 100%;
+  width: 42px; border: none; background: none;
+  font-size: 14px; color: var(--text-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.combo-menu {
+  margin-top: 6px;
+  border: 2px solid var(--border); border-radius: 12px;
+  background: #fff; max-height: 220px; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 6px 18px rgba(15,23,42,.10);
+}
+.combo-menu[hidden] { display: none; }
+.combo-opt {
+  display: block; width: 100%; text-align: left;
+  padding: 12px 15px; border: none; background: none;
+  font-size: 15px; color: var(--text); cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.combo-opt:last-child { border-bottom: none; }
+.combo-opt:active, .combo-opt:hover { background: var(--bg); }
+.combo-empty { padding: 12px 15px; color: var(--text-muted); font-size: 13px; }
+html.theme-dark .combo-menu { background: #0F172A; border-color: var(--border); }
+html.theme-dark .combo-opt { color: var(--text); }
+html.theme-dark .combo-opt:active, html.theme-dark .combo-opt:hover { background: #1E293B; }
 .modal-form .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-form .months-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .mensu-repeat-toggle { display: flex; align-items: center; gap: 9px; margin: 2px 0 12px; font-size: 14px; font-weight: 600; cursor: pointer; }
