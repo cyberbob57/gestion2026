@@ -1468,10 +1468,15 @@ function renderSuivi() {
 
   <div class="suivi-toolbar">
     ${getCompteActif() === 'courant' ? (() => {
-      const mensuInscrites = entries.some(e => e.is_mensualisation);
-      return mensuInscrites
-        ? `<button class="btn-inscrire is-done" disabled title="Déjà inscrites pour ${MOIS_FR[state.mois]} ${state.annee}">✅ Mensualisations inscrites</button>`
-        : `<button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>`;
+      const { existing, manquantes } = getMensualitesEtat();
+      if (existing.length === 0) {
+        return `<button class="btn-inscrire" onclick="inscrireMensualisations()">📋 Inscrire les mensualisations</button>`;
+      }
+      // Mois déjà inscrit, mais des mensualités ont été ajoutées depuis → bouton actif pour compléter.
+      if (manquantes.length > 0) {
+        return `<button class="btn-inscrire" onclick="inscrireMensualisations()" title="${manquantes.length} mensualité(s) ajoutée(s) depuis l'inscription de ${MOIS_FR[state.mois]}">➕ Inscrire les manquantes (${manquantes.length})</button>`;
+      }
+      return `<button class="btn-inscrire is-done" disabled title="Déjà inscrites pour ${MOIS_FR[state.mois]} ${state.annee}">✅ Mensualisations inscrites</button>`;
     })() : ''}
     <button class="btn-pointer-tout" onclick="pointerTout()" title="Pointer toutes les opérations">✓✓</button>
     <button class="btn-import-csv" onclick="importCsvAuto()" title="Importer un relevé bancaire CSV : rapprochement automatique, création des opérations manquantes et pointage en un clic">🤖 CSV auto</button>
@@ -2697,25 +2702,41 @@ async function setSoldeBancaireDirect(val) {
   await setParam(key, String(val));
 }
 
-async function inscrireMensualisations() {
-  const mk    = MOIS_KEYS[state.mois];
-  const mois  = state.mois + 1;
-  const annee = state.annee;
-
+// État d'inscription des mensualisations pour le mois/compte courant.
+// manquantes = mensualités du mois pas encore présentes dans le Suivi (match libellé principal + secondaire).
+function getMensualitesEtat() {
+  const mk     = MOIS_KEYS[state.mois];
+  const mois   = state.mois + 1;
+  const annee  = state.annee;
+  const compte = getCompteActif();
   const toInsert = state.mensualisations.filter(m => m[mk] != null);
+  const existing = state.suivi.filter(s => s.mois === mois && s.annee === annee && s.is_mensualisation && suiviCompte(s) === compte);
+  const isPresent = (m) => existing.some(e =>
+    (e.libelle_principal  || '') === (m.libelle_principal  || '') &&
+    (e.libelle_secondaire || '') === (m.libelle_secondaire || '')
+  );
+  const manquantes = existing.length === 0 ? toInsert : toInsert.filter(m => !isPresent(m));
+  return { mk, mois, annee, compte, toInsert, existing, manquantes };
+}
+
+async function inscrireMensualisations() {
+  const { mk, mois, annee, compte, toInsert, existing, manquantes } = getMensualitesEtat();
   if (toInsert.length === 0) { showToast('Aucune mensualisation pour ce mois', 'error'); return; }
 
-  const compte = getCompteActif();
-  const existing = state.suivi.filter(s => s.mois === mois && s.annee === annee && s.is_mensualisation && suiviCompte(s) === compte);
-
-  // Si une seule mensualisation a déjà été inscrite ce mois sur ce compte, on bloque.
-  // Aucune suppression, aucune modification des lignes existantes.
-  if (existing.length > 0) {
-    showToast(`Mensualisations déjà inscrites pour ${MOIS_FR[state.mois]} ${annee} (${existing.length} ligne${existing.length>1?'s':''}) — aucune action.`, 'error');
+  // Rien à ajouter : tout est déjà inscrit. Aucune modification des lignes existantes.
+  if (manquantes.length === 0) {
+    showToast(`Mensualisations déjà inscrites pour ${MOIS_FR[state.mois]} ${annee} (${existing.length} ligne${existing.length>1?'s':''}).`, 'error');
     return;
   }
 
-  const rows = toInsert.map((m, i) => ({
+  // Mois déjà partiellement inscrit → on confirme l'ajout des seules lignes manquantes.
+  if (existing.length > 0) {
+    const noms = manquantes.map(m => m.libelle_secondaire || m.libelle_principal).join(', ');
+    if (!confirm(`${MOIS_FR[state.mois]} ${annee} est déjà inscrit (${existing.length} ligne${existing.length>1?'s':''}).\nAjouter la/les ${manquantes.length} mensualité(s) manquante(s) ?\n\n${noms}`)) return;
+  }
+
+  const baseOrdre = existing.length;
+  const rows = manquantes.map((m, i) => ({
     annee,
     mois,
     jour:               m.jour,
@@ -2726,14 +2747,14 @@ async function inscrireMensualisations() {
     debit:  m.operation === 'Débit'  ? parseFloat(m[mk]) : null,
     is_mensualisation: true,
     compte,
-    ordre: i,
+    ordre: baseOrdre + i,
   }));
 
   setSyncing(true);
   const { error } = await sb.from('suivi_mensuel').insert(rows);
   setSyncing(false);
   if (error) { showToast('Erreur : ' + error.message, 'error'); return; }
-  showToast(`${rows.length} mensualisations inscrites ✓`, 'success');
+  showToast(`${rows.length} mensualisation${rows.length>1?'s':''} inscrite${rows.length>1?'s':''} ✓`, 'success');
   await loadData();
 }
 
