@@ -777,6 +777,56 @@ function getDepensesParCategorie(maxItems = 5) {
   return arr;
 }
 
+// Solde projeté du compte courant la VEILLE du salaire « Robert » (mois affiché).
+// Combine les lignes déjà inscrites au Suivi + les mensualisations pas encore inscrites,
+// et somme tout ce qui tombe AVANT le jour du salaire (salaire exclu).
+function soldeAvantSalaire() {
+  const mk     = MOIS_KEYS[state.mois];
+  const mois   = state.mois + 1;
+  const annee  = state.annee;
+  const compte = 'courant';
+
+  const inscrits = state.suivi.filter(e => e.mois === mois && e.annee === annee && suiviCompte(e) === compte);
+  const isPresent = (m) => inscrits.some(e =>
+    e.is_mensualisation &&
+    (e.libelle_principal  || '') === (m.libelle_principal  || '') &&
+    (e.libelle_secondaire || '') === (m.libelle_secondaire || '')
+  );
+  const projetees = state.mensualisations
+    .filter(m => m[mk] != null && !isPresent(m))
+    .map(m => ({
+      jour: m.jour,
+      libelle_principal:  m.libelle_principal,
+      libelle_secondaire: m.libelle_secondaire,
+      credit: m.operation === 'Crédit' ? parseFloat(m[mk]) : null,
+      debit:  m.operation === 'Débit'  ? parseFloat(m[mk]) : null,
+    }));
+  const mouvements = inscrits.concat(projetees);
+
+  // Repérer le salaire « Robert » : un crédit dont le libellé évoque salaire/retraite + « robert ».
+  const txt = e => ((e.libelle_principal || '') + ' ' + (e.libelle_secondaire || '')).toLowerCase();
+  let cands = mouvements.filter(e => parseFloat(e.credit || 0) > 0 && /salaire|retraite|paie|paye/.test(txt(e)));
+  const rob = cands.filter(e => /robert/.test(txt(e)));
+  if (rob.length) cands = rob;
+  if (!cands.length) return null;
+  cands.sort((a, b) => (b.jour || 0) - (a.jour || 0)); // salaire le plus tard dans le mois
+  const salaire = cands[0];
+  const jourSalaire = salaire.jour || 0;
+
+  const depart = getSoldeDepart(state.mois, state.annee, compte);
+  const avant = mouvements
+    .filter(e => (e.jour || 0) < jourSalaire)
+    .reduce((s, e) => s + parseFloat(e.credit || 0) - parseFloat(e.debit || 0), 0);
+
+  return {
+    jourSalaire,
+    montantSalaire: parseFloat(salaire.credit || 0),
+    libelleSalaire: salaire.libelle_secondaire || salaire.libelle_principal || 'Salaire',
+    solde: depart + avant,
+    projete: projetees.length > 0, // au moins une mensualité pas encore inscrite → estimation
+  };
+}
+
 function renderDashboard() {
   const mk = MOIS_KEYS[state.mois];
   const mensuD = state.mensualisations.filter(m => m.operation === 'Débit' && m[mk] != null).reduce((s,m) => s + parseFloat(m[mk]||0), 0);
@@ -827,6 +877,19 @@ function renderDashboard() {
       </div>
     </div>
   </div>
+
+  ${(() => {
+    const av = soldeAvantSalaire();
+    if (!av) return '';
+    const cls    = av.solde >= 0 ? 'positive' : 'negative';
+    const veille = av.jourSalaire > 1 ? av.jourSalaire - 1 : av.jourSalaire;
+    return `
+  <div class="card avsal-card">
+    <div class="card-title">💶 Disponible avant le salaire${av.projete ? ' <small class="avsal-est">estimation</small>' : ''}</div>
+    <div class="avsal-amount ${cls}" data-countup="${av.solde}">${fmt(av.solde)}</div>
+    <div class="avsal-sub">Veille du ${escHtml(av.libelleSalaire)} — le <strong>${veille} ${MOIS_FR[state.mois]}</strong> · salaire le ${av.jourSalaire} (+${fmt(av.montantSalaire)})</div>
+  </div>`;
+  })()}
 
   ${(() => {
     const cour = soldeCompteFin('courant');

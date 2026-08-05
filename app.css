@@ -307,6 +307,20 @@ a { color: var(--primary-mid); }
   margin-bottom: 12px;
 }
 
+/* ── Carte « Disponible avant le salaire » ─────────────── */
+.avsal-card { border-left: 4px solid var(--credit); }
+.avsal-card .card-title { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.avsal-est {
+  text-transform: none; letter-spacing: 0; font-weight: 700; font-size: 10px;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--credit-bg); color: var(--credit);
+}
+.avsal-amount { font-size: 32px; font-weight: 800; letter-spacing: -1px; font-feature-settings: "tnum" 1; }
+.avsal-amount.positive { color: var(--credit); }
+.avsal-amount.negative { color: var(--debit); }
+.avsal-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
+.avsal-sub strong { color: var(--text); }
+
 /* ── Dashboard ─────────────────────────────────────────── */
 .solde-card {
   background: linear-gradient(145deg, #1E3A8A 0%, #1E40AF 40%, #2563EB 80%, #3B82F6 100%);
