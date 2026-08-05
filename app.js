@@ -3252,6 +3252,9 @@ async function saveSuiviEntry(id) {
   // Si on a déplacé la date d'une opération issue d'une mensualisation, proposer
   // d'aligner aussi la fiche Mensuel (sinon « Synchroniser » réécrasera ce jour).
   if (id) await proposerAlignerMensuMaster(oldEntry, data.jour, id);
+  // Si on a changé le MONTANT d'une opération issue d'une mensualisation, proposer
+  // de reporter ce nouveau montant sur toute l'année (Mensuel + mois déjà inscrits).
+  if (id) await proposerAlignerMensuMontant(oldEntry, data, id);
   showToast(id ? 'Opération mise à jour' : 'Opération ajoutée', 'success');
   closeModal();
   // Mettre à jour le prochain numéro de chèque
@@ -3303,6 +3306,61 @@ async function proposerAlignerMensuMaster(oldEntry, newJour, currentId) {
   await q;
   setSyncing(false);
   showToast(`Date alignée dans Mensuel (jour ${newJour}) ✓`, 'success');
+}
+
+// Quand on change le MONTANT d'une ligne du Suivi issue d'une mensualisation, la
+// fiche Mensuel (le « maître ») et les autres mois déjà inscrits gardent l'ancien
+// montant. On propose ici de reporter le nouveau montant sur toute l'année, pour
+// que le changement « tienne » partout (et que « Synchroniser » ne le rétablisse pas).
+async function proposerAlignerMensuMontant(oldEntry, data, currentId) {
+  if (!oldEntry || !oldEntry.is_mensualisation) return;          // pas une mensualisation
+  // Montant = crédit ou débit selon l'opération.
+  const oldMnt = oldEntry.credit != null ? parseFloat(oldEntry.credit)
+               : oldEntry.debit  != null ? parseFloat(oldEntry.debit) : null;
+  const newMnt = data.credit != null ? data.credit
+               : data.debit  != null ? data.debit : null;
+  if (newMnt == null) return;                                     // pas de montant lisible
+  if (oldMnt != null && Math.abs(oldMnt - newMnt) < 0.005) return; // montant inchangé
+  const lp = oldEntry.libelle_principal || '';
+  const ls = oldEntry.libelle_secondaire || null;
+  const master = state.mensualisations.find(m =>
+    (m.libelle_principal  || '')   === lp &&
+    (m.libelle_secondaire || null) === ls);
+  if (!master) return;                                            // pas de maître à corriger
+  const nom = [lp, ls].filter(Boolean).join(' › ') || 'cette mensualisation';
+  // On ne touche qu'aux mois DÉJÀ actifs sur le maître (valeur non vide) : on garde
+  // la structure « quels mois sont concernés » et on n'y met que le nouveau montant.
+  const moisActifs = MOIS_KEYS.filter(k => master[k] != null && master[k] !== '');
+  // Sécurité : si le maître n'a aucun mois renseigné, on reporte quand même sur les 12.
+  const cibles = moisActifs.length ? moisActifs : MOIS_KEYS.slice();
+  const dejaOk = cibles.every(k => Math.abs(parseFloat(master[k] || 0) - newMnt) < 0.005);
+  if (dejaOk) return;                                             // maître déjà à ce montant
+  if (!confirm(
+    `« ${nom} » est une mensualisation.\n\n` +
+    `Reporter le montant ${fmt(newMnt)} sur toute l'année ` +
+    `(fiche Mensuel + les autres mois déjà inscrits) ?\n\n` +
+    `Sinon seul ce mois est modifié.`
+  )) return;
+  setSyncing(true);
+  // 1. La fiche maître (Mensuel) : nouveau montant sur chaque mois actif.
+  const patch = { updated_at: new Date().toISOString() };
+  cibles.forEach(k => { patch[k] = newMnt; });
+  await sb.from('mensualisations').update(patch).eq('id', master.id);
+  // 2. Les autres lignes déjà inscrites de cette mensualisation (même année, sauf
+  //    celle qu'on vient d'enregistrer) : on aligne crédit/débit selon l'opération.
+  const champ = master.operation === 'Crédit'
+    ? { credit: newMnt, debit: null }
+    : { debit: newMnt, credit: null };
+  let q = sb.from('suivi_mensuel')
+    .update(champ)
+    .eq('is_mensualisation', true)
+    .eq('annee', oldEntry.annee)
+    .eq('libelle_principal', lp)
+    .neq('id', currentId);
+  q = ls ? q.eq('libelle_secondaire', ls) : q.is('libelle_secondaire', null);
+  await q;
+  setSyncing(false);
+  showToast(`Montant reporté sur l'année (${fmt(newMnt)}) ✓`, 'success');
 }
 
 async function deleteSuiviEntry(id) {
