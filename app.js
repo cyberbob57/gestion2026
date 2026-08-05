@@ -3314,63 +3314,54 @@ async function proposerAlignerMensuMaster(oldEntry, newJour, currentId) {
 // que le changement « tienne » partout (et que « Synchroniser » ne le rétablisse pas).
 async function proposerAlignerMensuMontant(oldEntry, data, currentId) {
   if (!oldEntry || !oldEntry.is_mensualisation) return;          // pas une mensualisation
-  // Montant saisi = crédit ou débit selon l'opération.
+  // Montant = crédit ou débit selon l'opération.
+  const oldMnt = oldEntry.credit != null ? parseFloat(oldEntry.credit)
+               : oldEntry.debit  != null ? parseFloat(oldEntry.debit) : null;
   const newMnt = data.credit != null ? data.credit
                : data.debit  != null ? data.debit : null;
   if (newMnt == null) return;                                     // pas de montant lisible
+  if (oldMnt != null && Math.abs(oldMnt - newMnt) < 0.005) return; // montant inchangé dans cette saisie
   const lp = oldEntry.libelle_principal || '';
   const ls = oldEntry.libelle_secondaire || null;
   const master = state.mensualisations.find(m =>
     (m.libelle_principal  || '')   === lp &&
     (m.libelle_secondaire || null) === ls);
   if (!master) return;                                            // pas de maître à corriger
-  // On compare au PLAN du mois concerné : si le montant du Suivi diffère du montant
-  // prévu en Mensuel pour ce mois-ci, on propose de reporter. (Se déclenche donc aussi
-  // en ré-ouvrant une ligne déjà modifiée, tant qu'elle diverge du plan annuel.)
-  const mk = MOIS_KEYS[(data.mois || 1) - 1];
-  const planMois = master[mk];
-  if (planMois == null || planMois === '') return;               // mois non planifié → on ne propose rien
-  if (Math.abs(parseFloat(planMois) - newMnt) < 0.005) return;   // déjà conforme au plan
   const nom = [lp, ls].filter(Boolean).join(' › ') || 'cette mensualisation';
-  const moisFr = MOIS_FR[(data.mois || 1) - 1];
-  const ok = confirm(
-    `« ${nom} » est une mensualisation (prévue à ${fmt(parseFloat(planMois))} en Mensuel).\n\n` +
-    `Reporter le nouveau montant ${fmt(newMnt)} sur toute l'année ` +
-    `(fiche Mensuel + les autres mois déjà inscrits) ?\n\n` +
-    `Sinon le changement ne vaut que pour ${moisFr}.`
-  );
+  const moisIdx = (data.mois || 1) - 1;                           // 0-based
+  const moisFr  = MOIS_FR[moisIdx];
+  // On reporte sur CE mois + les mois SUIVANTS uniquement (jamais les mois passés),
+  // et seulement sur les mois déjà actifs du maître (on préserve les mois saisonniers).
+  const cibles = MOIS_KEYS.filter((k, i) => i >= moisIdx && master[k] != null && master[k] !== '');
+  if (!confirm(
+    `« ${nom} » est une mensualisation.\n\n` +
+    `Reporter le nouveau montant ${fmt(newMnt)} sur ${moisFr} et les mois suivants ` +
+    `(fiche Mensuel + le Suivi déjà inscrit) ?\n\n` +
+    `Sinon seul ${moisFr} est modifié.`
+  )) return;
   setSyncing(true);
-  if (ok) {
-    // 1. La fiche maître (Mensuel) : nouveau montant sur chaque mois DÉJÀ actif
-    //    (valeur non vide) → on préserve les mensualités saisonnières.
-    const moisActifs = MOIS_KEYS.filter(k => master[k] != null && master[k] !== '');
-    const cibles = moisActifs.length ? moisActifs : MOIS_KEYS.slice();
+  // 1. La fiche maître (Mensuel) : nouveau montant sur ce mois + les suivants (actifs).
+  if (cibles.length) {
     const patch = { updated_at: new Date().toISOString() };
     cibles.forEach(k => { patch[k] = newMnt; });
     await sb.from('mensualisations').update(patch).eq('id', master.id);
-    // 2. Les autres lignes déjà inscrites de cette mensualisation (même année, sauf
-    //    celle qu'on vient d'enregistrer) : on aligne crédit/débit selon l'opération.
-    const champ = master.operation === 'Crédit'
-      ? { credit: newMnt, debit: null }
-      : { debit: newMnt, credit: null };
-    let q = sb.from('suivi_mensuel')
-      .update(champ)
-      .eq('is_mensualisation', true)
-      .eq('annee', oldEntry.annee)
-      .eq('libelle_principal', lp)
-      .neq('id', currentId);
-    q = ls ? q.eq('libelle_secondaire', ls) : q.is('libelle_secondaire', null);
-    await q;
-    setSyncing(false);
-    showToast(`Montant reporté sur l'année (${fmt(newMnt)}) ✓`, 'success');
-  } else {
-    // « Non » : on cale juste le plan de CE mois sur le montant saisi, pour ne plus
-    // reposer la question à chaque enregistrement — les autres mois restent inchangés.
-    await sb.from('mensualisations')
-      .update({ [mk]: newMnt, updated_at: new Date().toISOString() })
-      .eq('id', master.id);
-    setSyncing(false);
   }
+  // 2. Les lignes déjà inscrites au Suivi de ce mois et des suivants (même année,
+  //    sauf celle qu'on vient d'enregistrer) : on aligne crédit/débit selon l'opération.
+  const champ = master.operation === 'Crédit'
+    ? { credit: newMnt, debit: null }
+    : { debit: newMnt, credit: null };
+  let q = sb.from('suivi_mensuel')
+    .update(champ)
+    .eq('is_mensualisation', true)
+    .eq('annee', oldEntry.annee)
+    .gte('mois', data.mois)
+    .eq('libelle_principal', lp)
+    .neq('id', currentId);
+  q = ls ? q.eq('libelle_secondaire', ls) : q.is('libelle_secondaire', null);
+  await q;
+  setSyncing(false);
+  showToast(`Montant reporté (${fmt(newMnt)}) sur ${moisFr} et suivants ✓`, 'success');
 }
 
 async function deleteSuiviEntry(id) {
