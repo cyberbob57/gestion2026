@@ -1509,7 +1509,7 @@ function renderSuivi() {
     <div class="rapp-title">🏦 Rapprochement bancaire</div>
     ${bankBadgeHTML(getBanque())}
     <div class="rapp-bank-big" onclick="showSoldeBancaire()">
-      <div class="rbb-label">Solde bancaire réel</div>
+      <div class="rbb-label">Solde bancaire réel · ${MOIS_FR[state.mois]} ${state.annee}</div>
       ${isNaN(soldeBancaire)
         ? '<div class="rbb-set">Toucher pour saisir →</div>'
         : `<div class="rbb-amount ${soldeBancaire >= 0 ? 'positive' : 'negative'}">${fmt(soldeBancaire)} <span class="rbb-pencil">✎</span></div>`}
