@@ -3746,15 +3746,33 @@ function renderParametres() {
     <div class="params-item">
       <div class="params-item-left">
         <div class="name">Gestion ${getAnneeExercice()}</div>
-        <div class="sub">v1.3 · PWA · Sync Supabase</div>
+        <div class="sub"><span id="app-version">…</span> · PWA · Sync Supabase</div>
       </div>
     </div>
   </div>`;
 }
 
+async function showAppVersion() {
+  const el = document.getElementById('app-version');
+  if (!el) return;
+  let v = 0;
+  try {
+    const keys = 'caches' in window ? await caches.keys() : [];
+    keys.forEach(k => { const m = /^gestion2026-v(\d+)$/.exec(k); if (m) v = Math.max(v, +m[1]); });
+  } catch (e) { /* cache inaccessible */ }
+  if (!v) { // repli : paramètre ?v= du script app.js
+    const s = document.querySelector('script[src*="app.js"]');
+    const m = s && /[?&]v=(\d+)/.exec(s.getAttribute('src'));
+    if (m) v = +m[1];
+  }
+  el.textContent = v ? 'v' + v : 'version inconnue';
+}
+
 function bindParametres() {
   const inp = document.getElementById('new-principal');
   if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addLibellePrincipal(); });
+  // Affiche la version réellement installée (nom du cache du service worker, ex. gestion2026-v127)
+  showAppVersion();
   // Affiche l'email du compte connecté
   sb && sb.auth && sb.auth.getUser().then(({ data }) => {
     const el = document.getElementById('auth-email');
