@@ -237,6 +237,7 @@ a { color: var(--primary-mid); }
 }
 /* Logo : masqué par défaut (mobile), affiché en sidebar desktop via media query */
 .nav-logo { display: none; }
+.nav-version { display: none; }
 .nav-item {
   flex: 1;
   display: flex;
@@ -1149,6 +1150,9 @@ html.theme-dark .calc-op { background: #0F172A; }
     border-radius: 16px;
     box-shadow: 0 6px 20px rgba(15,23,42,.18), 0 1px 0 rgba(255,255,255,.5) inset;
   }
+  /* Version : centrée dans l'espace libre sous « Réglages » */
+  .nav-version { display: flex !important; flex: 1; align-items: center; justify-content: center;
+    font-size: 11px; color: var(--text-muted); letter-spacing: .04em; }
   .nav-item {
     flex-direction: row; justify-content: flex-start;
     padding: 0 10px; height: 52px; border-radius: 14px;
@@ -1371,6 +1375,7 @@ html.theme-dark .calc-op { background: #0F172A; }
 .rapp-row-bank:hover { background: rgba(255,255,255,.2); }
 .rapp-label { opacity: .9; font-size: 13px; }
 .rapp-label small { opacity: .75; font-size: 11px; }
+.rapp-prev { margin-top: 6px; font-size: 11.5px; opacity: .85; cursor: pointer; }
 .rapp-val { font-weight: 700; font-size: 15px; color: white; }
 .rapp-val.positive, .rapp-val.negative { color: white; }
 .rapp-edit { display: flex; align-items: center; gap: 6px; }
@@ -2512,6 +2517,7 @@ html.theme-dark .calc-op { background: #0F172A; }
 .login-err.hidden { display:none; }
 #screen-login .btn-primary { margin-top:6px; }
 .login-swap { display:block; margin:14px auto 0; font-size:13px; color:var(--primary-mid); font-weight:600; background:none; border:none; }
+.login-version { margin-top:18px; text-align:center; font-size:11px; color:var(--text-muted); letter-spacing:.04em; }
 
   html.theme-dark .login-card { background:#1E293B; }
   html.theme-dark .login-card h1 { color:#fff; }

@@ -593,14 +593,22 @@ async function loadData() {
   render();
 }
 
+// Regroupe les événements temps réel (une modif sur 12 mois = 12 événements)
+// en un seul rechargement complet.
+let _reloadTimer = null;
+function scheduleReload() {
+  clearTimeout(_reloadTimer);
+  _reloadTimer = setTimeout(loadData, 500);
+}
+
 function subscribeRealtime() {
   if (!sb) return;
   sb.channel('db-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'mensualisations' }, () => loadData())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadData())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'libelles' }, () => loadData())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'suivi_mensuel' }, () => loadData())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'soldes_depart' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'mensualisations' }, () => scheduleReload())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => scheduleReload())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'libelles' }, () => scheduleReload())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'suivi_mensuel' }, () => scheduleReload())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'soldes_depart' }, () => scheduleReload())
     .subscribe();
 }
 
@@ -690,11 +698,17 @@ function navigate(view) {
   render();
 }
 
+let _lastRenderedView = null;
 function render() {
   const main = document.getElementById('main-content');
-  main.classList.remove('view-enter');
-  void main.offsetWidth; // force reflow to restart animation
-  main.classList.add('view-enter');
+  // Animation d'entrée seulement au changement d'onglet (pas à chaque rafraîchissement
+  // des données, sinon la page « clignote » après chaque enregistrement)
+  if (state.view !== _lastRenderedView) {
+    main.classList.remove('view-enter');
+    void main.offsetWidth; // force reflow to restart animation
+    main.classList.add('view-enter');
+    _lastRenderedView = state.view;
+  }
   switch (state.view) {
     case 'dashboard':      main.innerHTML = renderDashboard(); bindDashboard(); break;
     case 'mensualisation': main.innerHTML = renderMensualisation(); break;
@@ -1422,7 +1436,15 @@ function renderSuivi() {
   const pointed  = entries.filter(e => e.pointe === '✓');
   const pointedD = pointed.reduce((s, e) => s + parseFloat(e.debit  || 0), 0);
   const pointedC = pointed.reduce((s, e) => s + parseFloat(e.credit || 0), 0);
-  const soldePointe   = soldeDepart + pointedC - pointedD;
+  // Le report inclut TOUTES les opérations du mois précédent : celles pas encore
+  // pointées (ex. chèque non encaissé) ne sont pas passées en banque → on les retire.
+  const pmIdx = state.mois === 0 ? 11 : state.mois - 1;
+  const paIdx = state.mois === 0 ? state.annee - 1 : state.annee;
+  const prevNonPointees = state.suivi.filter(e => e.mois === pmIdx + 1 && e.annee === paIdx
+    && suiviCompte(e) === getCompteActif() && e.pointe !== '✓');
+  const prevNonPointeesNet = +prevNonPointees
+    .reduce((s, e) => s + parseFloat(e.credit || 0) - parseFloat(e.debit || 0), 0).toFixed(2);
+  const soldePointe   = soldeDepart - prevNonPointeesNet + pointedC - pointedD;
   const soldeBancaire = getSoldeBancaire(state.mois, state.annee);
   const ecart         = isNaN(soldeBancaire) ? null : +(soldeBancaire - soldePointe).toFixed(2);
   const isEquilibre   = ecart !== null && Math.abs(ecart) < 0.01;
@@ -1519,6 +1541,9 @@ function renderSuivi() {
         <span class="rapp-label">✓ Solde pointé <small>(${pointed.length} op.)</small></span>
         <span class="rapp-val ${soldePointe >= 0 ? 'positive' : 'negative'}">${fmt(soldePointe)}</span>
       </div>
+      ${prevNonPointees.length ? `<div class="rapp-prev" onclick="prevMonth()" title="Voir ${MOIS_FR[pmIdx]}">
+        ⏳ ${prevNonPointees.length} op. de ${MOIS_FR[pmIdx]} non pointée(s) (${prevNonPointeesNet > 0 ? '+' : ''}${fmt(prevNonPointeesNet)}) : pas encore en banque, exclue(s) du calcul
+      </div>` : ''}
       <div class="rapp-ecart ${isEquilibre ? 'ok' : ecart === null ? 'pending' : 'nok'}">
         ${isEquilibre
           ? '✅ Comptes équilibrés — solde confirmé'
@@ -3178,9 +3203,11 @@ async function saveSuiviEntry(id) {
   }
   // Mémorise l'état AVANT modification : si on déplace la date d'une opération
   // issue d'une mensualisation, on proposera d'aligner aussi la fiche Mensuel.
-  const oldEntry = id ? state.suivi.find(x => x.id === id) : null;
+  // (copie : la ligne locale est mise à jour avant ces propositions)
+  const _old = id ? state.suivi.find(x => x.id === id) : null;
+  const oldEntry = _old ? { ..._old } : null;
   setSyncing(true);
-  let err, savedId = id;
+  let err, savedId = id, newRows = null;
   // Mode "Paypal en 4X — création" : on insère 4 lignes datées Éch 1/4 → Éch 4/4
   // Chaque ligne peut avoir son propre montant (sinon reprend celui de la 1ère échéance).
   if (isPp4xCreation) {
@@ -3205,13 +3232,21 @@ async function saveSuiviEntry(id) {
     }
     const { data: insRows, error: e } = await sb.from('suivi_mensuel').insert(rows).select();
     err = e;
-    if (insRows && insRows.length) savedId = insRows[0].id;
+    if (insRows && insRows.length) { savedId = insRows[0].id; newRows = insRows; }
   } else if (id) {
     ({ error: err } = await sb.from('suivi_mensuel').update(data).eq('id', id));
   } else {
     const ins = await sb.from('suivi_mensuel').insert(data).select().single();
     err = ins.error;
-    if (ins.data) savedId = ins.data.id;
+    if (ins.data) { savedId = ins.data.id; newRows = [ins.data]; }
+  }
+  // Affichage immédiat : on ferme la fenêtre et on montre l'opération sans attendre
+  // le rechargement complet (fait à la fin, qui remplace ces données locales).
+  if (!err) {
+    if (newRows) state.suivi.push(...newRows);
+    else if (_old) Object.assign(_old, data);
+    closeModal();
+    render();
   }
   // Gestion du miroir (virement interne entre comptes)
   if (!err && savedId) {
@@ -3746,15 +3781,15 @@ function renderParametres() {
     <div class="params-item">
       <div class="params-item-left">
         <div class="name">Gestion ${getAnneeExercice()}</div>
-        <div class="sub"><span id="app-version">…</span> · PWA · Sync Supabase</div>
+        <div class="sub"><span class="app-version">…</span> · PWA · Sync Supabase</div>
       </div>
     </div>
   </div>`;
 }
 
 async function showAppVersion() {
-  const el = document.getElementById('app-version');
-  if (!el) return;
+  const els = document.querySelectorAll('.app-version');
+  if (!els.length) return;
   let v = 0;
   try {
     const keys = 'caches' in window ? await caches.keys() : [];
@@ -3765,7 +3800,7 @@ async function showAppVersion() {
     const m = s && /[?&]v=(\d+)/.exec(s.getAttribute('src'));
     if (m) v = +m[1];
   }
-  el.textContent = v ? 'v' + v : 'version inconnue';
+  els.forEach(el => { el.textContent = v ? 'v' + v : 'version inconnue'; });
 }
 
 function bindParametres() {
@@ -5818,8 +5853,10 @@ function showLogin(opts = {}) {
       <div id="login-err" class="login-err hidden"></div>
       <button class="btn-primary" onclick="${fn}()">${cta} →</button>
       <button class="login-swap" onclick="showLogin({mode:'forgot'})">Mot de passe oublié ?</button>
+      <div class="login-version app-version"></div>
     </div>
   `;
+  showAppVersion();
   setTimeout(() => document.getElementById('login-email')?.focus(), 50);
 }
 async function doForgotPassword() {
@@ -5877,6 +5914,7 @@ async function onSignedIn() {
   await loadData();
   // Démarrage : l'app s'ouvre sur le Suivi journalier (chip + titre + vue synchros)
   navigate(state.view || 'suivi');
+  showAppVersion();
   subscribeRealtime();
   setTimeout(maybeAutoBackup, 1500);
 }
@@ -6002,7 +6040,9 @@ function showLockScreen() {
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
       <div id="lock-err" class="login-err hidden"></div>
       <button class="login-swap" onclick="doLogout()">Se déconnecter (mot de passe)</button>
+      <div class="login-version app-version"></div>
     </div>`;
+  showAppVersion();
   setTimeout(biometricUnlockFlow, 350);   // tentative automatique
 }
 function hideLockScreen() {
