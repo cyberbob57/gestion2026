@@ -717,6 +717,7 @@ function render() {
     case 'stats':          main.innerHTML = renderStats(); bindStats(); break;
   }
   updateMonthLabel();
+  document.title = `Gestion ${state.annee}`;
   updateSyncDot();
   updateFab();
 
@@ -1483,6 +1484,7 @@ function renderSuivi() {
   const isFiltered = q !== '' || filt !== 'tous' || cat !== '' || moyen !== '';
 
   return `
+  ${anneeArchivee(state.annee) ? `<div class="archive-banner">🔒 ${state.annee} est archivée : lecture seule</div>` : ''}
   <div class="compte-selector">
     ${getComptes().map(c => `<button class="compte-chip${c.id===getCompteActif()?' active':''}" onclick="setCompteActif('${c.id}')">${escHtml(c.nom)}</button>`).join('')}
   </div>
@@ -1761,6 +1763,7 @@ function bindStats() {
 }
 
 async function togglePointe(id, current) {
+  if (bloqueSiArchive()) return;
   const newVal = current === '✓' ? '' : '✓';
   await sb.from('suivi_mensuel').update({ pointe: newVal }).eq('id', id);
 
@@ -1792,6 +1795,7 @@ async function togglePointe(id, current) {
 }
 
 async function pointerTout() {
+  if (bloqueSiArchive()) return;
   const nonPointes = getSuiviMois().filter(e => e.pointe !== '✓');
   if (nonPointes.length === 0) { showToast('Toutes les opérations sont déjà pointées ✓', 'success'); return; }
   setSyncing(true);
@@ -2077,6 +2081,7 @@ function _matchScore(csvRow, dbOp) {
 // 🤖 IMPORT CSV AUTO : 1 clic → choix fichier → rapprochement + création + pointage,
 // pas de modale d'aperçu, juste un toast récapitulatif.
 function importCsvAuto() {
+  if (bloqueSiArchive()) return;
   // Crée un input file invisible et déclenche le picker immédiatement
   const input = document.createElement('input');
   input.type = 'file';
@@ -2692,6 +2697,7 @@ function csvPickConfirm(csvIdx, dbId) {
 }
 
 async function applyCSVImport() {
+  if (bloqueSiArchive()) return;
   const { parsed, pairings } = window._csvImport;
   const toPoint  = pairings.filter(p => p && p.dbId);
   const toCreate = pairings.map((p, i) => p && p.source === 'new' ? i : -1).filter(i => i >= 0);
@@ -2763,6 +2769,7 @@ async function applyCSVImport() {
 // changer le mode actuel — reste en manuel pour les suivants si l'utilisateur
 // veut continuer à pointer ce qui restait).
 async function csvDoAutoMatch() {
+  if (bloqueSiArchive()) return;
   const { parsed, monthOps } = window._csvImport;
   // Recalcule les auto-matches (au cas où l'utilisateur en a modifié certains)
   const auto = autoMatchCSV(parsed.rows, monthOps);
@@ -2808,6 +2815,7 @@ function getMensualitesEtat() {
 }
 
 async function inscrireMensualisations() {
+  if (bloqueSiArchive()) return;
   const { mk, mois, annee, compte, toInsert, existing, manquantes } = getMensualitesEtat();
   if (toInsert.length === 0) { showToast('Aucune mensualisation pour ce mois', 'error'); return; }
 
@@ -2865,6 +2873,7 @@ function showSoldeDepart() {
 }
 
 async function saveSoldeDepart() {
+  if (bloqueSiArchive()) return;
   const val = _parseMontantFR(document.getElementById('solde-input').value);
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
   const mois = state.mois + 1;
@@ -2912,6 +2921,7 @@ function showSoldeBancaire() {
 }
 
 async function saveSoldeBancaire() {
+  if (bloqueSiArchive()) return;
   const val = _parseMontantFR(document.getElementById('solde-banque-input').value);
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
   const c = getCompteActif();
@@ -2925,6 +2935,7 @@ async function saveSoldeBancaire() {
 }
 
 async function purgerMois() {
+  if (bloqueSiArchive()) return;
   const moisFR = MOIS_FR[state.mois];
   const ids = getSuiviMois().map(e => e.id);
   if (ids.length === 0) { showToast('Aucune opération à effacer ce mois', 'error'); return; }
@@ -3077,6 +3088,7 @@ function calcOp(ev, uid, op) {
 }
 
 function showAddSuiviEntry() {
+  if (bloqueSiArchive()) return;
   const today = new Date().getDate();
   // Saisie en 2 taps : on pré-remplit le dernier moyen de paiement utilisé.
   const lm = localStorage.getItem('last_moyen');
@@ -3136,6 +3148,7 @@ function dupliquerSuiviEntry(id) {
 }
 
 async function saveSuiviEntry(id) {
+  if (bloqueSiArchive()) return;
   const form = document.getElementById('suivi-form');
   // Évalue un éventuel calcul resté dans le champ montant (ex. "12+3") avant lecture des champs cachés
   const mntEl = form.querySelector('.dc-montant');
@@ -3333,6 +3346,7 @@ async function proposerAlignerMensuMaster(oldEntry, newJour, currentId) {
   // 2. Les autres lignes déjà inscrites de cette mensualisation (sauf celle modifiée).
   let q = sb.from('suivi_mensuel')
     .update({ jour: newJour })
+    .eq('annee', oldEntry.annee)   // même année seulement
     .eq('is_mensualisation', true)
     .eq('libelle_principal', lp)
     .neq('jour', newJour)
@@ -3400,6 +3414,7 @@ async function proposerAlignerMensuMontant(oldEntry, data, currentId) {
 }
 
 async function deleteSuiviEntry(id) {
+  if (bloqueSiArchive()) return;
   closeModal();
   // L'opération + un éventuel virement épargne automatique lié (source_id)
   const removed = state.suivi.filter(x => x.id === id || x.source_id === id);
@@ -3768,19 +3783,14 @@ function renderParametres() {
       <button class="btn-small btn-sync" onclick="synchroniserDatesMensu()">🔄 Synchroniser maintenant</button>
     </div>
 
-    <h3>Nouvel exercice annuel</h3>
-    <div class="card" style="margin:0">
-      <div class="params-item-left" style="margin-bottom:10px">
-        <div class="name">Clôturer ${getAnneeExercice()} → créer ${getAnneeExercice() + 1}</div>
-        <div class="sub">Conserve les mensualisations, libellés/sous-libellés, moyens de paiement, chéquiers et pictogrammes. Efface le suivi journalier, les transactions et les soldes de ${getAnneeExercice()}.</div>
-      </div>
-      <button class="btn-small btn-nouvel-exercice" onclick="showNouvelExercice()">🗓️ Démarrer l'exercice ${getAnneeExercice() + 1}</button>
-    </div>
+    <h3>Années &amp; archives</h3>
+    <div class="sub" style="font-size:12px;color:var(--text-muted);margin:0 0 8px">Chaque année reste dans l'app. Une fois tout pointé, archivez-la pour la protéger (lecture seule).</div>
+    ${renderAnneesArchives()}
 
     <h3>Informations</h3>
     <div class="params-item">
       <div class="params-item-left">
-        <div class="name">Gestion ${getAnneeExercice()}</div>
+        <div class="name">Gestion ${state.annee}</div>
         <div class="sub"><span class="app-version">…</span> · PWA · Sync Supabase</div>
       </div>
     </div>
@@ -3828,6 +3838,7 @@ function toggleLibelleBlock(id) {
 }
 
 async function saveSoldeExercice() {
+  if (bloqueSiArchive()) return;
   const val = _parseMontantFR(document.getElementById('solde-exercice-inp').value);
   if (isNaN(val)) { showToast('Montant invalide', 'error'); return; }
   const { error } = await sb.from('soldes_depart').upsert(
@@ -4001,68 +4012,64 @@ async function deleteMoyenPaiement(idx) {
     commitDb: async () => { await setParam('moyens_paiement', JSON.stringify(newMps)); },
   });
 }
-function getAnneeExercice() {
-  const v = parseInt(state.parametres['annee_exercice'], 10);
-  return Number.isFinite(v) ? v : 2026;
+// ── Années archivées (lecture seule) ─────────────────────
+// Une année archivée reste consultable (Suivi, Stats…) mais plus aucune
+// opération, aucun pointage ni aucun solde ne peut y être modifié.
+function anneeArchivee(annee) {
+  return state.parametres[`archive_${annee}`] === '1';
 }
-
-function showNouvelExercice() {
-  const a = getAnneeExercice();
-  const n = a + 1;
-  openModal(`
-  <div class="modal-handle"></div>
-  <div class="modal-title">🗓️ Nouvel exercice ${n}</div>
-  <div class="modal-form">
-    <p style="font-size:14px;line-height:1.6;color:var(--text);margin-bottom:8px">
-      <strong>Conservé :</strong> mensualisations, libellés &amp; sous-libellés, moyens de paiement, chéquiers, pictogrammes.
-    </p>
-    <p style="font-size:14px;line-height:1.6;color:var(--debit);margin-bottom:8px">
-      <strong>Effacé définitivement (${a}) :</strong> suivi journalier, transactions, soldes de report et soldes bancaires.
-    </p>
-    <p style="font-size:12px;color:var(--text-muted);background:var(--debit-bg);border:1px solid #FECACA;border-radius:10px;padding:10px;margin-bottom:14px">
-      ⚠️ Action irréversible. Sauvegardez d'abord dans iCloud par sécurité.
-    </p>
-    <div class="modal-actions" style="flex-direction:column;gap:8px">
-      <button class="btn-save btn-icloud" onclick="sauvegardeICloud()">1 · ☁️ Sauvegarder d'abord</button>
-      <button class="btn-danger" onclick="executerNouvelExercice()">2 · Créer l'exercice ${n} (effacer ${a})</button>
-      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
-    </div>
-  </div>`);
+function bloqueSiArchive(annee = state.annee) {
+  if (!anneeArchivee(annee)) return false;
+  showToast(`🔒 ${annee} est archivée (lecture seule). Désarchivez-la dans Réglages pour la modifier.`, 'error');
+  return true;
 }
-
-async function executerNouvelExercice() {
-  const a = getAnneeExercice();
-  const n = a + 1;
-  if (!confirm(`Confirmer la clôture de l'exercice ${a} ?\n\nToutes les opérations de suivi, transactions et soldes de ${a} seront définitivement supprimés.\n\nLes mensualisations et libellés sont conservés.`)) return;
-  if (!confirm(`Dernière confirmation.\n\nCréer le nouvel exercice ${n} et effacer définitivement les données ${a} ?`)) return;
-  closeModal();
-  setSyncing(true);
-  try {
-    // Suivi journalier de l'année close
-    await sb.from('suivi_mensuel').delete().eq('annee', a);
-    // Transactions de l'année close
-    await sb.from('transactions').delete()
-      .gte('date_transaction', `${a}-01-01`).lte('date_transaction', `${a}-12-31`);
-    // Soldes de report de l'année close
-    await sb.from('soldes_depart').delete().eq('annee', a);
-    // Soldes bancaires réels (paramètres solde_banque_AAAA_MM)
-    const banqueKeys = Object.keys(state.parametres).filter(k => k.startsWith(`solde_banque_${a}_`));
-    for (const k of banqueKeys) {
-      await sb.from('parametres').delete().eq('cle', k);
+// Opérations non pointées d'une année (tous comptes), par mois
+function nonPointeesAnnee(annee) {
+  const parMois = {};
+  state.suivi.filter(e => e.annee === annee && e.pointe !== '✓')
+    .forEach(e => { parMois[e.mois] = (parMois[e.mois] || 0) + 1; });
+  return parMois;
+}
+async function archiverAnnee(annee) {
+  const reste = Object.values(nonPointeesAnnee(annee)).reduce((a, b) => a + b, 0);
+  if (reste) { showToast(`Il reste ${reste} opération(s) non pointée(s) en ${annee}`, 'error'); return; }
+  if (!confirm(`Archiver ${annee} ?\n\nL'année reste consultable (Suivi, Stats), mais plus rien ne pourra y être modifié.\nVous pourrez la désarchiver dans Réglages.`)) return;
+  await setParam(`archive_${annee}`, '1');
+  showToast(`🔒 ${annee} archivée`, 'success');
+  navigate('parametres');
+}
+async function desarchiverAnnee(annee) {
+  if (!confirm(`Désarchiver ${annee} ?\n\nL'année redeviendra modifiable.`)) return;
+  await setParam(`archive_${annee}`, '');
+  showToast(`${annee} désarchivée`, 'success');
+  navigate('parametres');
+}
+function renderAnneesArchives() {
+  const anneeCourante = new Date().getFullYear();
+  const annees = [...new Set([...state.suivi.map(e => e.annee), state.annee])].filter(Boolean).sort((a, b) => b - a);
+  return annees.map(a => {
+    let sub, btn = '';
+    if (anneeArchivee(a)) {
+      sub = '🔒 Archivée : lecture seule';
+      btn = `<button class="btn-small" onclick="desarchiverAnnee(${a})">Désarchiver</button>`;
+    } else if (a >= anneeCourante) {
+      sub = `En cours. Archivage possible à partir de janvier ${a + 1}, une fois tout pointé.`;
+    } else {
+      const pm = nonPointeesAnnee(a);
+      const reste = Object.values(pm).reduce((x, y) => x + y, 0);
+      if (reste) {
+        sub = `${reste} op. non pointée(s) : ` + Object.keys(pm).sort((x, y) => x - y)
+          .map(m => `${MOIS_FR[m - 1]} ${pm[m]}`).join(', ');
+      } else {
+        sub = 'Tout est pointé ✓';
+        btn = `<button class="btn-small" onclick="archiverAnnee(${a})">🔒 Archiver ${a}</button>`;
+      }
     }
-    // Bascule de l'année d'exercice
-    await sb.from('parametres').upsert({ cle: 'annee_exercice', valeur: String(n) }, { onConflict: 'cle' });
-  } catch (e) {
-    setSyncing(false);
-    showToast('Erreur : ' + (e.message || e), 'error');
-    return;
-  }
-  setSyncing(false);
-  state.annee = n;
-  state.mois = 0;
-  await loadData();
-  showToast(`Exercice ${n} créé ✓`, 'success');
-  navigate('dashboard');
+    return `<div class="params-item">
+      <div class="params-item-left"><div class="name">${a}</div><div class="sub">${sub}</div></div>
+      ${btn}
+    </div>`;
+  }).join('');
 }
 
 async function addPictoRule() {
@@ -4758,9 +4765,10 @@ async function saveMensu(id) {
   // opérations déjà inscrites dans le Suivi qui correspondent à cette mensu.
   // On match sur les ANCIENS libellés (au cas où ils ont été renommés dans le même save).
   let propagated = 0;
-  if (id && oldMensu && oldMensu.jour !== data.jour) {
+  if (id && oldMensu && oldMensu.jour !== data.jour && !anneeArchivee(state.annee)) {
     let q = sb.from('suivi_mensuel')
       .update({ jour: data.jour })
+      .eq('annee', state.annee)   // seulement l'année affichée (les autres gardent leurs vrais jours)
       .eq('is_mensualisation', true)
       .eq('libelle_principal', oldMensu.libelle_principal || '');
     if (oldMensu.libelle_secondaire) {
@@ -4775,8 +4783,8 @@ async function saveMensu(id) {
   // inscrites au Suivi (année d'exercice). Sinon le Mensuel affiche « réel: … » en
   // rouge tant que le Suivi garde l'ancien montant.
   let montantsPropages = 0;
-  if (id && oldMensu) {
-    const anneeEx = getAnneeExercice();
+  if (id && oldMensu && !anneeArchivee(state.annee)) {
+    const anneeEx = state.annee;
     for (let i = 0; i < 12; i++) {
       const k = MOIS_KEYS[i];
       const oldV = (oldMensu[k] == null || oldMensu[k] === '') ? null : parseFloat(oldMensu[k]);
@@ -4822,7 +4830,8 @@ async function saveMensu(id) {
 // Parcourt toutes les mensualisations et aligne le jour de chaque ligne du Suivi
 // inscrite comme mensualisation (match libellé principal + secondaire).
 async function synchroniserDatesMensu() {
-  if (!confirm('Aligner toutes les opérations du Suivi inscrites comme mensualisations sur les jours définis en Mensuel ?\n\nLes opérations saisies manuellement (hors mensualisations) ne seront pas touchées.')) return;
+  if (bloqueSiArchive()) return;
+  if (!confirm(`Aligner les opérations ${state.annee} du Suivi inscrites comme mensualisations sur les jours définis en Mensuel ?\n\nLes opérations saisies manuellement (hors mensualisations) ne seront pas touchées.`)) return;
   setSyncing(true);
   let totalRows = 0;
   let mensuTouched = 0;
@@ -4833,6 +4842,7 @@ async function synchroniserDatesMensu() {
       // Liste les lignes correspondantes qui ne sont pas déjà au bon jour
       let q = sb.from('suivi_mensuel')
         .update({ jour: targetJour })
+        .eq('annee', state.annee)   // année affichée uniquement
         .eq('is_mensualisation', true)
         .eq('libelle_principal', m.libelle_principal || '')
         .neq('jour', targetJour);
@@ -5833,7 +5843,7 @@ function showLogin(opts = {}) {
       <div class="login-logo">
         <img src="icon.png?v=114" alt="MON COMPTE">
       </div>
-      <h1>Gestion 2026</h1>
+      <h1>Gestion ${state.annee}</h1>
       <p class="login-sub">${sub}</p>
       <div class="form-group">
         <label>Email</label>
@@ -6035,7 +6045,7 @@ function showLockScreen() {
   s.innerHTML = `
     <div class="login-card">
       <div class="login-logo"><img src="icon.png?v=114" alt="MON COMPTE"></div>
-      <h1>Gestion 2026</h1>
+      <h1>Gestion ${state.annee}</h1>
       <p class="login-sub">Déverrouillez pour accéder à vos comptes</p>
       <button class="btn-primary" onclick="biometricUnlockFlow()"><span class="lock-bio-icon">🫆</span><br>Déverrouiller</button>
       <div id="lock-err" class="login-err hidden"></div>
